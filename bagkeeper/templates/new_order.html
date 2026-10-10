@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Call a runner - BagKeeper{% endblock %}
+{% block content %}
+<h1>Call a runner</h1>
+<form class="card" method="post">
+  <label for="mall_id">Mall</label>
+  <select id="mall_id" name="mall_id" required>
+    {% for m in malls %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}
+  </select>
+  <label for="pickup_spot">Where are you?</label>
+  <input id="pickup_spot" name="pickup_spot" placeholder="e.g. Level 2, outside Zara" required>
+  <label for="bag_count">Number of bags</label>
+  <select id="bag_count" name="bag_count">
+    {% for n in range(1, 11) %}<option>{{ n }}</option>{% endfor %}
+  </select>
+  <label for="note">Note for the runner (optional)</label>
+  <textarea id="note" name="note" rows="2" placeholder="Fragile items, what you're wearing..."></textarea>
+  <p class="muted">Fee: {{ cfg.BASE_FEE_CENTS|money }} for the first bag, {{ cfg.EXTRA_BAG_FEE_CENTS|money }} per extra bag. Payment is not yet enabled in this demo.</p>
+  <button class="btn">Request pickup</button>
+</form>
+{% endblock %}

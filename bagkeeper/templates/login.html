@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Log in - BagKeeper{% endblock %}
+{% block content %}
+<h1>Welcome back</h1>
+<form class="card" method="post">
+  <label for="phone">Phone number</label>
+  <input id="phone" name="phone" type="tel" autocomplete="tel" required>
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" required>
+  <button class="btn">Log in</button>
+</form>
+<p class="muted">New here? <a href="{{ url_for('web.register') }}">Create an account</a></p>
+{% endblock %}

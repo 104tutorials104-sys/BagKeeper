@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Admin - BagKeeper{% endblock %}
+{% block content %}
+<h1>Overview</h1>
+<div class="grid">
+  <div class="card stat"><span class="muted">Active</span><b>{{ stats.active or 0 }}</b></div>
+  <div class="card stat"><span class="muted">Delivered</span><b>{{ stats.delivered or 0 }}</b></div>
+  <div class="card stat"><span class="muted">Seal disputes</span><b>{{ stats.flagged or 0 }}</b></div>
+  <div class="card stat"><span class="muted">Revenue</span><b>{{ stats.revenue|money }}</b></div>
+</div>
+
+<details class="card" style="margin-top:12px">
+  <summary>Add a mall</summary>
+  <form method="post" action="{{ url_for('web.add_mall') }}">
+    <label for="mname">Mall name</label><input id="mname" name="name" required>
+    <button class="btn">Add mall</button>
+  </form>
+  {% if malls %}<p class="muted">Current: {% for m in malls %}{{ m.name }}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+</details>
+
+<details class="card">
+  <summary>Add a runner or admin</summary>
+  <form method="post" action="{{ url_for('web.add_staff') }}">
+    <label for="sname">Name</label><input id="sname" name="name" required>
+    <label for="sphone">Phone number</label><input id="sphone" name="phone" type="tel" required>
+    <label for="spw">Password</label><input id="spw" name="password" type="password" minlength="4" required>
+    <label for="srole">Role</label>
+    <select id="srole" name="role"><option value="runner">Runner</option><option value="admin">Admin</option></select>
+    <label for="small">Mall (runners only)</label>
+    <select id="small" name="mall_id">{% for m in malls %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}</select>
+    <button class="btn">Create account</button>
+  </form>
+</details>
+
+{% if stuck %}<h2>Unclaimed for {{ 5 }}+ minutes</h2>
+<p class="muted">Open the order and assign a runner.</p>
+{% for o in stuck %}{% include "_order_card.html" %}{% endfor %}{% endif %}
+
+<h2>Runners</h2>
+{% for r in staff %}
+<div class="card row"><b>{{ r.name }}</b>
+  <span class="muted">{% for m in malls if m.id == r.mall_id %}{{ m.name }}{% endfor %}
+    &middot; <span class="badge {{ 'ok' if r.on_duty else '' }}">{{ 'On duty' if r.on_duty else 'Off duty' }}</span></span></div>
+{% else %}<p class="muted">No runners yet.</p>{% endfor %}
+
+{% if flagged %}<h2>Flagged - seal broken or mismatched</h2>
+{% for o in flagged %}{% include "_order_card.html" %}{% endfor %}{% endif %}
+
+<h2>Recent orders</h2>
+{% for o in recent %}{% include "_order_card.html" %}{% else %}<p class="muted">No orders yet.</p>{% endfor %}
+{% endblock %}

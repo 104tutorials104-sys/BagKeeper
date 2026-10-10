@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Runner - BagKeeper{% endblock %}
+{% block content %}
+<h1>Runner board</h1>
+{% if g.user.role == 'runner' %}
+<div class="card row">
+  <div><b>{{ mall_name.name if mall_name else 'No mall assigned' }}</b><br>
+    <span class="muted">{{ 'You are on duty and receiving jobs' if g.user.on_duty else 'Off duty - you cannot take jobs' }}</span></div>
+  <form method="post" action="{{ url_for('web.duty') }}">
+    <input type="hidden" name="on_duty" value="{{ 0 if g.user.on_duty else 1 }}">
+    <button class="btn sm {{ 'ghost' if g.user.on_duty }}">{{ 'Go off duty' if g.user.on_duty else 'Go on duty' }}</button>
+  </form>
+</div>
+{% endif %}
+
+<h2>My jobs</h2>
+{% for o in mine %}{% include "_order_card.html" %}{% else %}<p class="muted">Nothing assigned to you.</p>{% endfor %}
+
+<h2>New pickups ({{ open_pickups|length }})</h2>
+{% for o in open_pickups %}{% include "_order_card.html" %}{% else %}<p class="muted">No pickup requests right now.</p>{% endfor %}
+
+<h2>Delivery requests ({{ open_returns|length }})</h2>
+{% for o in open_returns %}{% include "_order_card.html" %}{% else %}<p class="muted">No customers waiting for their bags.</p>{% endfor %}
+
+<h2>In storage ({{ stored|length }})</h2>
+{% for o in stored %}{% include "_order_card.html" %}{% else %}<p class="muted">Storage is empty.</p>{% endfor %}
+{% endblock %}

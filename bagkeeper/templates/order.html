@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}{{ o.code }} - BagKeeper{% endblock %}
+{% block content %}
+{% set flow = ['requested','assigned','picked_up','stored','return_requested','out_for_delivery','delivered'] %}
+{% set pos = flow.index(o.status) if o.status in flow else -1 %}
+{% set staff = g.user.role != 'customer' %}
+
+<div class="row"><h1>{{ o.code }}</h1>
+  <span class="badge {{ 'ok' if o.status=='delivered' else 'bad' if o.status=='cancelled' else '' }}">{{ o.status|label }}</span></div>
+{% if o.status != 'cancelled' %}
+<div class="steps">{% for s in flow %}<i class="{{ 'on' if loop.index0 <= pos }}"></i>{% endfor %}</div>
+{% endif %}
+
+<div class="card">
+  <div class="row"><span class="muted">Mall</span><b>{{ o.mall }}</b></div>
+  <div class="row"><span class="muted">Picked up at</span><b>{{ o.pickup_spot }}</b></div>
+  <div class="row"><span class="muted">Bags</span><b>{{ o.bag_count }}</b></div>
+  {% if o.dropoff_spot %}<div class="row"><span class="muted">Deliver to</span><b>{{ o.dropoff_spot }}</b></div>{% endif %}
+  {% if o.seal_no %}<div class="row"><span class="muted">Seal no.</span><b>{{ o.seal_no }}</b></div>{% endif %}
+  {% if o.storage_slot and staff %}<div class="row"><span class="muted">Storage slot</span><b>{{ o.storage_slot }}</b></div>{% endif %}
+  {% if staff %}
+    <div class="row"><span class="muted">Customer</span><b>{{ o.customer }} &middot; {{ o.customer_phone }}</b></div>
+    <div class="row"><span class="muted">Runner</span><b>{{ o.runner or '-' }}</b></div>
+    {% if o.note %}<div class="row"><span class="muted">Note</span><b>{{ o.note }}</b></div>{% endif %}
+  {% endif %}
+  <div class="row"><span class="muted">Fee</span><b>{{ o.fee_cents|money }}</b></div>
+  {% if o.seal_ok == 0 %}<p class="badge bad">Seal reported broken at delivery - under review</p>{% endif %}
+  {% if o.seal_ok == 1 %}<p class="badge ok">Seal intact at delivery</p>{% endif %}
+</div>
+
+{# ---------- customer actions ---------- #}
+{% if not staff %}
+  {% if o.status in ('requested','assigned') %}
+    <p class="muted">{{ 'A runner is on the way to you.' if o.status=='assigned' else 'Finding a runner near you...' }}</p>
+    <form method="post" action="{{ url_for('web.cancel', order_id=o.id) }}"><button class="btn danger">Cancel request</button></form>
+  {% elif o.status in ('picked_up','stored') %}
+    <h2>Done shopping?</h2>
+    <form class="card" method="post" action="{{ url_for('web.return_bag', order_id=o.id) }}">
+      <label for="dropoff_spot">Where should we bring your bags?</label>
+      <input id="dropoff_spot" name="dropoff_spot" placeholder="e.g. Car park B, bay 114 - white Corolla" required>
+      <button class="btn">Bring my bags</button>
+    </form>
+  {% elif o.status in ('return_requested','out_for_delivery') %}
+    <h2>Your handover code</h2>
+    <div class="code">{{ o.handover_code }}</div>
+    <p class="muted">Give this code to the runner only when you've checked that the seal number matches <b>{{ o.seal_no }}</b> and is unbroken.</p>
+  {% endif %}
+{% endif %}
+
+{% if g.user.role == 'admin' and o.status in ('requested','assigned','picked_up','return_requested','out_for_delivery') %}
+<details class="card">
+  <summary>Assign / reassign runner</summary>
+  <form method="post" action="{{ url_for('web.reassign', order_id=o.id) }}">
+    <select name="runner_id">
+      {% for r in runners_here %}<option value="{{ r.id }}">{{ r.name }} ({{ 'on duty' if r.on_duty else 'off duty' }})</option>{% endfor %}
+    </select>
+    <button class="btn">Assign</button>
+  </form>
+</details>
+{% endif %}
+
+{# ---------- runner actions ---------- #}
+{% if staff %}
+  {% if o.status == 'requested' %}
+    <form method="post" action="{{ url_for('web.claim', order_id=o.id) }}"><button class="btn">Take this pickup</button></form>
+  {% elif o.status == 'assigned' %}
+    <h2>Seal &amp; collect</h2>
+    <form class="card" method="post" enctype="multipart/form-data" action="{{ url_for('web.pickup', order_id=o.id) }}">
+      <label>Photo of bag contents (before sealing)</label>
+      <input type="file" name="bag_photo" accept="image/*" capture="environment" required>
+      <label>Seal / tag number</label>
+      <input name="seal_no" placeholder="Printed on the tamper tag" required>
+      <label>Seal type</label>
+      <select name="seal_method">
+        <option value="tamper_tag">Tamper-evident tag</option>
+        <option value="biometric">Biometric (thumb) seal</option>
+      </select>
+      <label>Photo of the sealed bag</label>
+      <input type="file" name="sealed_photo" accept="image/*" capture="environment">
+      <button class="btn">Confirm sealed &amp; collected</button>
+    </form>
+  {% elif o.status == 'picked_up' %}
+    <h2>Store the bag</h2>
+    <form class="card" method="post" action="{{ url_for('web.store', order_id=o.id) }}">
+      <label>Storage slot</label><input name="slot" placeholder="e.g. A-12" required>
+      <button class="btn">Mark stored</button>
+    </form>
+  {% elif o.status == 'return_requested' %}
+    <form method="post" action="{{ url_for('web.deliver_start', order_id=o.id) }}"><button class="btn">Start delivery</button></form>
+  {% elif o.status == 'out_for_delivery' %}
+    <h2>Hand over</h2>
+    <form class="card" method="post" enctype="multipart/form-data" action="{{ url_for('web.deliver_complete', order_id=o.id) }}">
+      <label>Customer's 4-digit code</label>
+      <input name="code" inputmode="numeric" maxlength="4" pattern="\d{4}" required>
+      <label>Seal intact and number matches {{ o.seal_no }}?</label>
+      <select name="seal_intact"><option value="yes">Yes - intact</option><option value="no">No - broken / mismatch</option></select>
+      <label>Photo at handover (optional)</label>
+      <input type="file" name="photo" accept="image/*" capture="environment">
+      <button class="btn">Complete delivery</button>
+    </form>
+  {% endif %}
+{% endif %}
+
+{% if photos %}
+<h2>Photos</h2>
+<div class="photos">
+  {% for p in photos %}
+    <a href="{{ url_for('web.photo', photo_id=p.id) }}" target="_blank" title="{{ p.kind }}"><img src="{{ url_for('web.photo', photo_id=p.id) }}" alt="{{ p.kind }} photo" loading="lazy"></a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<h2>Timeline</h2>
+<ul class="tl">
+  {% for e in events %}<li><b>{{ e.event|label }}</b> <span class="muted">{{ e.created_at }} UTC{% if e.actor %} &middot; {{ e.actor }}{% endif %}</span>{% if e.detail %}<br><span class="muted">{{ e.detail }}</span>{% endif %}</li>{% endfor %}
+</ul>
+{% endblock %}

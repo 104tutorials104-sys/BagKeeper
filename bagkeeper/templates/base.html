@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f766e">
+  <title>{% block title %}BagKeeper{% endblock %}</title>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="top"><div class="in">
+  <a class="logo" href="{{ url_for('web.index') }}">Bag<span>Keeper</span></a>
+  <nav>
+    {% if g.user %}
+      {% if g.user.role == 'customer' %}<a href="{{ url_for('web.dashboard') }}">My bags</a>{% endif %}
+      {% if g.user.role in ('runner','admin') %}<a href="{{ url_for('web.runner') }}">Runner</a>{% endif %}
+      {% if g.user.role == 'admin' %}<a href="{{ url_for('web.admin') }}">Admin</a>{% endif %}
+      <form method="post" action="{{ url_for('web.logout') }}"><button class="link">Log out</button></form>
+    {% else %}
+      <a href="{{ url_for('web.login') }}">Log in</a>
+    {% endif %}
+  </nav>
+</div></header>
+<main>
+  {% for cat, msg in get_flashed_messages(with_categories=true) %}
+    <div class="flash {{ cat }}">{{ msg }}</div>
+  {% endfor %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

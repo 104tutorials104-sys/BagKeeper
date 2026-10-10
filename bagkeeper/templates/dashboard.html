@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}My bags - BagKeeper{% endblock %}
+{% block content %}
+<h1>Hi, {{ g.user.name.split()[0] }}</h1>
+<a class="btn" href="{{ url_for('web.new_order') }}" style="margin-top:0">+ Call a runner</a>
+
+<h2>Active</h2>
+{% for o in active %}{% include "_order_card.html" %}
+{% else %}<p class="muted">No active bags. Tap "Call a runner" when you're ready to shop hands-free.</p>{% endfor %}
+
+{% if past %}<h2>History</h2>
+{% for o in past %}{% include "_order_card.html" %}{% endfor %}{% endif %}
+{% endblock %}

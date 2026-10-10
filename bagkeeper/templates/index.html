@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Shop hands-free.<br>We'll hold your bags.</h1>
+  <p>Tap to call a runner, drop your bags with us, and get them delivered to your car when you're done.</p>
+  <a class="btn" href="{{ url_for('web.register') }}">Get started</a>
+  <a class="btn ghost" href="{{ url_for('web.login') }}">I have an account</a>
+</section>
+<h2>How it works</h2>
+<ol class="how">
+  <li><b>Call a runner</b><br><span class="muted">Tell us where you are in the mall.</span></li>
+  <li><b>We seal &amp; store</b><br><span class="muted">Bags are photographed, tamper-sealed and logged. Nothing can go missing unnoticed.</span></li>
+  <li><b>Done shopping? Tap once</b><br><span class="muted">Tell us where you parked.</span></li>
+  <li><b>Hand over with a code</b><br><span class="muted">The runner delivers; you share a 4-digit code and check the seal.</span></li>
+</ol>
+{% endblock %}
