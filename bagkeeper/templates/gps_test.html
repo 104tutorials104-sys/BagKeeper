@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}GPS test - BagKeeper{% endblock %}
+{% block content %}
+<h1>GPS test</h1>
+<p class="muted">Walk through the mall with this page open. At each spot, wait about 20-30 seconds, then tap <b>Mark this spot</b>. Nothing is sent anywhere; results stay on your phone.</p>
+
+<div class="card" id="status">
+  <div class="row"><span class="muted">Status</span><b id="st">Not started</b></div>
+  <div class="row"><span class="muted">Accuracy (radius)</span><b id="acc">-</b></div>
+  <div class="row"><span class="muted">Position</span><b id="pos">-</b></div>
+  <div class="row"><span class="muted">Altitude</span><b id="alt">-</b></div>
+  <div class="row"><span class="muted">Fixes received</span><b id="fixes">0</b></div>
+  <div class="row"><span class="muted">Time to first fix</span><b id="ttff">-</b></div>
+  <button class="btn" id="start">Start GPS</button>
+</div>
+
+<div class="card">
+  <label for="label">Where are you standing?</label>
+  <select id="label">
+    <option>1. Outside entrance (open sky)</option>
+    <option>2. Just inside the entrance</option>
+    <option>3. Middle of the mall / atrium</option>
+    <option>4. Upper level / food court</option>
+    <option>5. Far corner or inside a store</option>
+    <option>6. Near the storage room spot</option>
+    <option>7. Car park (covered or underground)</option>
+    <option>8. Car park (open air)</option>
+  </select>
+  <label for="floor">Floor / level (type it)</label>
+  <input id="floor" placeholder="e.g. Ground, L1, L2, B1">
+  <button class="btn" id="mark" disabled>Mark this spot</button>
+</div>
+
+<h2>Results</h2>
+<div id="verdict" class="card muted">No spots marked yet.</div>
+<div id="rows"></div>
+<button class="btn ghost" id="copy" disabled>Copy results</button>
+<button class="btn ghost" id="csv" disabled>Download CSV</button>
+
+<h2>How to read it</h2>
+<ul class="muted">
+  <li><b>Accuracy 20 m or better:</b> good enough to drop a pin (cars, entrances).</li>
+  <li><b>20-60 m:</b> only tells us the area of the mall, not the shop.</li>
+  <li><b>Over 60 m, or no fix:</b> GPS is useless there. We use the "where are you" picker instead.</li>
+  <li>Phones do not know which <b>floor</b> you are on, so we always ask for the level.</li>
+</ul>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var watchId = null, last = null, fixes = 0, startedAt = 0, ttff = null, marks = [];
+
+  function fmt(n, d) { return (n === null || n === undefined || isNaN(n)) ? "-" : n.toFixed(d); }
+
+  function onFix(p) {
+    last = p; fixes++;
+    if (ttff === null) { ttff = (Date.now() - startedAt) / 1000; $("ttff").textContent = ttff.toFixed(1) + " s"; }
+    var c = p.coords;
+    $("st").textContent = "Receiving";
+    $("acc").textContent = "±" + fmt(c.accuracy, 0) + " m";
+    $("acc").style.color = c.accuracy <= 20 ? "var(--ok)" : c.accuracy <= 60 ? "var(--warn)" : "var(--bad)";
+    $("pos").textContent = fmt(c.latitude, 5) + ", " + fmt(c.longitude, 5);
+    $("alt").textContent = c.altitude === null ? "not provided" : fmt(c.altitude, 0) + " m";
+    $("fixes").textContent = fixes;
+    $("mark").disabled = false;
+  }
+
+  function onErr(e) {
+    var msg = { 1: "Permission denied - allow location for this site", 2: "Position unavailable (no signal)", 3: "Timed out" }[e.code] || e.message;
+    $("st").textContent = msg;
+  }
+
+  $("start").onclick = function () {
+    if (!navigator.geolocation) { $("st").textContent = "Geolocation not supported in this browser"; return; }
+    if (!window.isSecureContext) { $("st").textContent = "Needs HTTPS - open the https:// address"; return; }
+    if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; $("start").textContent = "Start GPS"; $("st").textContent = "Stopped"; return; }
+    fixes = 0; ttff = null; startedAt = Date.now();
+    $("st").textContent = "Waiting for first fix...";
+    $("start").textContent = "Stop GPS";
+    watchId = navigator.geolocation.watchPosition(onFix, onErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+  };
+
+  function metres(a, b) {
+    var R = 6371000, r = Math.PI / 180;
+    var dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+    var x = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return 2 * R * Math.asin(Math.sqrt(x));
+  }
+
+  $("mark").onclick = function () {
+    if (!last) return;
+    var c = last.coords;
+    marks.push({
+      spot: $("label").value, floor: $("floor").value || "",
+      lat: c.latitude, lon: c.longitude, acc: c.accuracy,
+      alt: c.altitude, time: new Date().toISOString(), ttff: ttff
+    });
+    render();
+  };
+
+  function render() {
+    var rows = $("rows"); rows.innerHTML = "";
+    marks.forEach(function (m, i) {
+      var div = document.createElement("div"); div.className = "card";
+      var tone = m.acc <= 20 ? "ok" : m.acc <= 60 ? "warn" : "bad";
+      var word = m.acc <= 20 ? "Good" : m.acc <= 60 ? "Area only" : "Poor";
+      var from = i ? " &middot; " + metres(marks[i - 1], m).toFixed(0) + " m from previous" : "";
+      var head = document.createElement("div"); head.className = "row";
+      var b = document.createElement("b"); b.textContent = m.spot + (m.floor ? " (" + m.floor + ")" : "");
+      var s = document.createElement("span"); s.className = "badge " + tone; s.textContent = word + " ±" + m.acc.toFixed(0) + " m";
+      head.appendChild(b); head.appendChild(s);
+      var sub = document.createElement("div"); sub.className = "muted";
+      sub.innerHTML = m.lat.toFixed(5) + ", " + m.lon.toFixed(5) + from;
+      var a = document.createElement("a");
+      a.href = "https://www.google.com/maps?q=" + m.lat + "," + m.lon; a.target = "_blank"; a.rel = "noopener";
+      a.textContent = "Open on map";
+      div.appendChild(head); div.appendChild(sub); div.appendChild(a);
+      rows.appendChild(div);
+    });
+    var accs = marks.map(function (m) { return m.acc; }).sort(function (a, b) { return a - b; });
+    var med = accs[Math.floor(accs.length / 2)], worst = accs[accs.length - 1];
+    var good = marks.filter(function (m) { return m.acc <= 20; }).length;
+    var v = $("verdict");
+    v.className = "card";
+    v.innerHTML = "<b>" + marks.length + " spots</b> &middot; median ±" + med.toFixed(0) + " m &middot; worst ±" + worst.toFixed(0) +
+      " m &middot; " + good + " of " + marks.length + " good (20 m or better)";
+    $("copy").disabled = false; $("csv").disabled = false;
+  }
+
+  $("copy").onclick = function () {
+    var t = JSON.stringify(marks, null, 2);
+    if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { $("copy").textContent = "Copied"; });
+    else window.prompt("Copy:", t);
+  };
+
+  $("csv").onclick = function () {
+    var head = "spot,floor,lat,lon,accuracy_m,altitude_m,time,secs_to_first_fix\n";
+    var body = marks.map(function (m) {
+      return [JSON.stringify(m.spot), JSON.stringify(m.floor), m.lat, m.lon, m.acc, m.alt === null ? "" : m.alt, m.time, m.ttff === null ? "" : m.ttff].join(",");
+    }).join("\n");
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([head + body], { type: "text/csv" }));
+    a.download = "bagkeeper-gps-test.csv"; a.click();
+  };
+})();
+</script>
+{% endblock %}

@@ -30,6 +30,12 @@ def index():
     return render_template("index.html")
 
 
+@bp.route("/gps-test")
+def gps_test():
+    """Public field-test page: how good is phone GPS inside a mall?"""
+    return render_template("gps_test.html")
+
+
 # ---------- auth ----------
 @bp.route("/register", methods=["GET", "POST"])
 def register():
