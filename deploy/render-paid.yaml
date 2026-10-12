@@ -1,0 +1,20 @@
+# Render blueprint: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: bagkeeper
+    runtime: docker
+    plan: starter            # persistent disks need a paid plan
+    healthCheckPath: /login
+    disk:
+      name: bagkeeper-data
+      mountPath: /data
+      sizeGB: 5
+    envVars:
+      - key: BAGKEEPER_SECRET
+        generateValue: true
+      - key: BAGKEEPER_ADMIN_NAME
+        value: Owner
+      - key: BAGKEEPER_ADMIN_PHONE
+        sync: false          # you type this in the Render dashboard
+      - key: BAGKEEPER_ADMIN_PASSWORD
+        sync: false          # you type this in the Render dashboard

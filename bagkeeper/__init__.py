@@ -31,6 +31,28 @@ def _bootstrap_admin(app: Flask) -> None:
                              phone, password, "admin")
 
 
+def _seed_demo(app: Flask) -> None:
+    """Demo hosting (free tier, ephemeral disk): recreate the demo mall and logins on every
+    start. Enabled only when BAGKEEPER_DEMO_PASSWORD is set; that value is the demo password."""
+    password = os.environ.get("BAGKEEPER_DEMO_PASSWORD")
+    if not password:
+        return
+    from . import services
+    with app.app_context():
+        conn = db.get_db()
+        conn.execute("INSERT OR IGNORE INTO malls (name) VALUES ('Sawgrass Mills')")
+        conn.commit()
+        mall_id = conn.execute("SELECT id FROM malls WHERE name='Sawgrass Mills'").fetchone()[0]
+        for name, phone, role in (("Demo Runner", "0500000002", "runner"),
+                                  ("Demo Customer", "0500000003", "customer")):
+            try:
+                services.create_user(name, phone, password, role, mall_id)
+            except services.RuleError:
+                pass  # already exists
+        conn.execute("UPDATE users SET on_duty=1 WHERE phone='0500000002'")
+        conn.commit()
+
+
 def create_app() -> Flask:
     app = Flask(__name__, instance_relative_config=True)
     # BAGKEEPER_DATA_DIR points at a persistent disk in production
@@ -58,6 +80,7 @@ def create_app() -> Flask:
 
     db.init_app(app)
     _bootstrap_admin(app)
+    _seed_demo(app)
 
     from . import api, web
 

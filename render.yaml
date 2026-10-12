@@ -1,14 +1,12 @@
-# Render blueprint: https://render.com/docs/blueprint-spec
+﻿# Render blueprint for the DEMO (free plan). Data is ephemeral: it resets whenever the service
+# restarts or wakes from sleep, so demo mode recreates the mall and demo logins on every start.
+# For real use switch to deploy/render-paid.yaml (persistent disk) or the Oracle setup.
 services:
   - type: web
     name: bagkeeper
     runtime: docker
-    plan: starter            # persistent disks need a paid plan
+    plan: free
     healthCheckPath: /login
-    disk:
-      name: bagkeeper-data
-      mountPath: /data
-      sizeGB: 5
     envVars:
       - key: BAGKEEPER_SECRET
         generateValue: true
@@ -17,4 +15,6 @@ services:
       - key: BAGKEEPER_ADMIN_PHONE
         sync: false          # you type this in the Render dashboard
       - key: BAGKEEPER_ADMIN_PASSWORD
-        sync: false          # you type this in the Render dashboard
+        sync: false          # you type this in the Render dashboard (8+ chars)
+      - key: BAGKEEPER_DEMO_PASSWORD
+        sync: false          # password for the demo runner + demo customer (8+ chars)
