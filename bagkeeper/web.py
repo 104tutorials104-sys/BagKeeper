@@ -86,16 +86,18 @@ def dashboard():
 @login_required("customer")
 def new_order():
     if request.method == "POST":
+        f = request.form
         try:
-            oid = svc.create_order(g.user["id"], int(request.form["mall_id"]),
-                                   request.form["pickup_spot"],
-                                   request.form.get("bag_count", 1),
-                                   request.form.get("note", ""))
+            oid = svc.create_order(
+                g.user["id"], int(f["mall_id"]), f.get("zone_id"), f.get("bag_count", 1),
+                details=f.get("details", ""), note=f.get("note", ""),
+                level=f.get("level", ""), lat=f.get("lat"), lon=f.get("lon"),
+                acc=f.get("acc"))
         except (svc.RuleError, ValueError) as e:
             flash(str(e) or "Check the form.", "error")
         else:
             return redirect(url_for("web.order", order_id=oid))
-    return render_template("new_order.html", malls=svc.malls(),
+    return render_template("new_order.html", malls=svc.malls(), zones=svc.zones(),
                            cfg=current_app.config)
 
 
@@ -103,10 +105,17 @@ def new_order():
 @login_required()
 def order(order_id):
     o = _order_or_404(order_id)
-    return render_template("order.html", o=o, events=svc.order_events(order_id),
-                           photos=svc.order_photos(order_id),
-                           runners_here=svc.runners(o["mall_id"])
-                           if g.user["role"] == "admin" else [])
+    mall = svc.get_mall(o["mall_id"])
+    # precise GPS pins: the customer, admins, and the runner who took the job
+    show_pins = (g.user["role"] in ("customer", "admin")
+                 or o["runner_id"] == g.user["id"])
+    return render_template(
+        "order.html", o=o, events=svc.order_events(order_id),
+        photos=svc.order_photos(order_id), mall=mall, show_pins=show_pins,
+        pickup_in_mall=svc.pin_inside_mall(mall, o["pickup_lat"], o["pickup_lon"]),
+        dropoff_in_mall=svc.pin_inside_mall(mall, o["dropoff_lat"], o["dropoff_lon"]),
+        return_zones=svc.zones(o["mall_id"], ("parking", "entrance")),
+        runners_here=svc.runners(o["mall_id"]) if g.user["role"] == "admin" else [])
 
 
 @bp.post("/order/<int:order_id>/cancel")
@@ -120,8 +129,10 @@ def cancel(order_id):
 @login_required("customer")
 def return_bag(order_id):
     _order_or_404(order_id)
+    f = request.form
     return _act(order_id, lambda: svc.request_return(
-        order_id, g.user["id"], request.form.get("dropoff_spot", "")))
+        order_id, g.user["id"], f.get("zone_id"), f.get("details", ""),
+        f.get("lat"), f.get("lon"), f.get("acc")))
 
 
 # ---------- runner ----------
@@ -215,6 +226,7 @@ def admin():
                            flagged=svc.list_orders("o.seal_ok=0"),
                            stuck=svc.list_orders(svc.unclaimed_clause()),
                            staff=svc.runners(), malls=svc.malls(),
+                           all_zones=svc.zones(include_inactive=True),
                            recent=svc.list_orders()[:25])
 
 
@@ -226,6 +238,40 @@ def reassign(order_id):
     except (KeyError, ValueError):
         abort(400)
     return _act(order_id, lambda: svc.reassign(order_id, g.user["id"], rid))
+
+
+@bp.post("/admin/zones")
+@login_required("admin")
+def add_zone():
+    f = request.form
+    try:
+        svc.add_zone(int(f["mall_id"]), f.get("name"), f.get("kind"),
+                     f.get("lat"), f.get("lon"))
+    except (svc.RuleError, ValueError, KeyError) as e:
+        flash(str(e) or "Check the form.", "error")
+    else:
+        flash("Place added.", "ok")
+    return redirect(url_for("web.admin"))
+
+
+@bp.post("/admin/zones/<int:zone_id>/toggle")
+@login_required("admin")
+def toggle_zone(zone_id):
+    svc.toggle_zone(zone_id)
+    return redirect(url_for("web.admin"))
+
+
+@bp.post("/admin/malls/<int:mall_id>/location")
+@login_required("admin")
+def mall_location(mall_id):
+    f = request.form
+    try:
+        svc.set_mall_location(mall_id, f.get("lat"), f.get("lon"), f.get("radius_m"))
+    except svc.RuleError as e:
+        flash(str(e), "error")
+    else:
+        flash("Mall location saved.", "ok")
+    return redirect(url_for("web.admin"))
 
 
 @bp.post("/admin/malls")

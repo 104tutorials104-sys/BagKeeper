@@ -1,6 +1,7 @@
 """Business logic. No Flask request/session code here, so the web UI and the
 JSON API (and later a mobile app) all go through the same rules."""
 import secrets
+import sqlite3
 import uuid
 from pathlib import Path
 
@@ -162,21 +163,99 @@ def save_photo(order_id, kind, file_storage):
 
 
 # ---------- customer actions ----------
-def create_order(customer_id, mall_id, pickup_spot, bag_count, note=""):
-    pickup_spot = pickup_spot.strip()
-    if not pickup_spot:
-        raise RuleError("Tell us where in the mall you are.")
+# ---------- places: malls, zones, GPS pins ----------
+GOOD_ACCURACY_M = 30
+MAX_PIN_ACCURACY_M = 150      # worse than this and we ignore the pin
+
+
+def get_mall(mall_id):
+    return get_db().execute("SELECT * FROM malls WHERE id=?", (mall_id,)).fetchone()
+
+
+def zones(mall_id=None, kinds=None, include_inactive=False):
+    sql, args = "SELECT * FROM zones WHERE 1=1", []
+    if mall_id:
+        sql += " AND mall_id=?"
+        args.append(mall_id)
+    if kinds:
+        sql += f" AND kind IN ({','.join('?' * len(kinds))})"
+        args += list(kinds)
+    if not include_inactive:
+        sql += " AND active=1"
+    return get_db().execute(sql + " ORDER BY kind, name", args).fetchall()
+
+
+def _zone(zone_id, mall_id, kinds):
+    try:
+        zone_id = int(zone_id)
+    except (TypeError, ValueError):
+        raise RuleError("Choose where you are from the list.")
+    z = get_db().execute("SELECT * FROM zones WHERE id=? AND mall_id=? AND active=1",
+                         (zone_id, mall_id)).fetchone()
+    if z is None or z["kind"] not in kinds:
+        raise RuleError("That place isn't available at this mall.")
+    return z
+
+
+def parse_pin(lat, lon, acc):
+    """Return (lat, lon, accuracy) or (None, None, None). Bad or very weak pins are dropped."""
+    try:
+        lat, lon = float(lat), float(lon)
+        acc = float(acc) if acc not in (None, "") else None
+    except (TypeError, ValueError):
+        return None, None, None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180) or (lat == 0 and lon == 0):
+        return None, None, None
+    if acc is None or acc < 0 or acc > MAX_PIN_ACCURACY_M:
+        return None, None, None
+    return lat, lon, acc
+
+
+def distance_m(lat1, lon1, lat2, lon2):
+    from math import asin, cos, radians, sin, sqrt
+    p1, p2 = radians(lat1), radians(lat2)
+    a = sin((p2 - p1) / 2) ** 2 + cos(p1) * cos(p2) * sin(radians(lon2 - lon1) / 2) ** 2
+    return 2 * 6371000 * asin(sqrt(a))
+
+
+def pin_inside_mall(mall, lat, lon):
+    """True/False, or None when the mall has no centre set or there is no pin."""
+    if lat is None or mall["lat"] is None or not mall["radius_m"]:
+        return None
+    return distance_m(lat, lon, mall["lat"], mall["lon"]) <= mall["radius_m"]
+
+
+def _where(zone, level, details, mall):
+    parts = [zone["name"]]
+    levels = [x.strip() for x in (mall["levels"] or "").split(",") if x.strip()]
+    if level and len(levels) > 1 and level in levels:
+        parts.append(level)
+    text = ", ".join(parts)
+    return f"{text} - {details.strip()}" if details and details.strip() else text
+
+
+def create_order(customer_id, mall_id, zone_id, bag_count, details="", note="",
+                 level="", lat=None, lon=None, acc=None):
+    mall = get_mall(mall_id)
+    if mall is None:
+        raise RuleError("Choose a mall.")
+    zone = _zone(zone_id, mall_id, ("area", "entrance", "parking"))
+    pickup_spot = _where(zone, level, details, mall)
+    plat, plon, pacc = parse_pin(lat, lon, acc)
     bag_count = max(1, min(int(bag_count or 1), 10))
     cfg = current_app.config
     fee = cfg["BASE_FEE_CENTS"] + (bag_count - 1) * cfg["EXTRA_BAG_FEE_CENTS"]
     db = get_db()
     code = "BK-" + secrets.token_hex(2).upper()
     cur = db.execute(
-        """INSERT INTO orders (code, customer_id, mall_id, pickup_spot, bag_count,
-                               note, fee_cents) VALUES (?,?,?,?,?,?,?)""",
-        (code, customer_id, mall_id, pickup_spot, bag_count, note.strip(), fee),
+        """INSERT INTO orders (code, customer_id, mall_id, pickup_spot, pickup_zone_id,
+               pickup_level, pickup_details, pickup_lat, pickup_lon, pickup_acc,
+               bag_count, note, fee_cents) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (code, customer_id, mall_id, pickup_spot, zone["id"], level or None,
+         (details or "").strip() or None, plat, plon, pacc, bag_count, note.strip(), fee),
     )
-    log(cur.lastrowid, customer_id, "requested", f"{bag_count} bag(s) at {pickup_spot}")
+    where = pickup_spot + (f" (GPS +/-{pacc:.0f} m)" if pacc is not None else "")
+    log(cur.lastrowid, customer_id, "requested", f"{bag_count} bag(s) at {where}")
     db.commit()
     return cur.lastrowid
 
@@ -192,18 +271,59 @@ def cancel_order(order_id, customer_id):
     get_db().commit()
 
 
-def request_return(order_id, customer_id, dropoff_spot):
+def request_return(order_id, customer_id, zone_id, details="", lat=None, lon=None, acc=None):
     o = get_order(order_id)
     if o["customer_id"] != customer_id:
         raise RuleError("Not your order.")
     if o["status"] not in ("picked_up", "stored"):
         raise RuleError("Bag can't be returned at this stage.")
-    if not dropoff_spot.strip():
-        raise RuleError("Tell us where to bring your bag (e.g. car park bay).")
+    mall = get_mall(o["mall_id"])
+    zone = _zone(zone_id, o["mall_id"], ("parking", "entrance"))
+    dlat, dlon, dacc = parse_pin(lat, lon, acc)
+    if not (details or "").strip() and dlat is None:
+        raise RuleError("Add a few details (row, bay, car colour) or use your location.")
+    dropoff_spot = _where(zone, "", details, mall)
     code = f"{secrets.randbelow(10000):04d}"
-    _set(order_id, status="return_requested", dropoff_spot=dropoff_spot.strip(),
-         handover_code=code)
-    log(order_id, customer_id, "return_requested", dropoff_spot.strip())
+    _set(order_id, status="return_requested", dropoff_spot=dropoff_spot,
+         dropoff_zone_id=zone["id"], dropoff_details=(details or "").strip() or None,
+         dropoff_lat=dlat, dropoff_lon=dlon, dropoff_acc=dacc, handover_code=code)
+    where = dropoff_spot + (f" (GPS +/-{dacc:.0f} m)" if dacc is not None else "")
+    log(order_id, customer_id, "return_requested", where)
+    get_db().commit()
+
+
+# ---------- admin: places ----------
+def add_zone(mall_id, name, kind, lat=None, lon=None):
+    name = (name or "").strip()
+    if not name or kind not in ("area", "entrance", "parking"):
+        raise RuleError("Enter a name and choose a type.")
+    plat, plon = None, None
+    if lat not in (None, "") and lon not in (None, ""):
+        plat, plon, _ = parse_pin(lat, lon, 0)
+    db = get_db()
+    try:
+        db.execute("INSERT INTO zones (mall_id, name, kind, lat, lon) VALUES (?,?,?,?,?)",
+                   (mall_id, name, kind, plat, plon))
+    except sqlite3.IntegrityError:
+        raise RuleError("That place already exists for this mall.")
+    db.commit()
+
+
+def toggle_zone(zone_id):
+    get_db().execute("UPDATE zones SET active = 1 - active WHERE id=?", (zone_id,))
+    get_db().commit()
+
+
+def set_mall_location(mall_id, lat, lon, radius_m):
+    plat, plon, _ = parse_pin(lat, lon, 0)
+    try:
+        radius = int(radius_m)
+    except (TypeError, ValueError):
+        radius = 0
+    if plat is None or not (50 <= radius <= 20000):
+        raise RuleError("Enter a valid latitude, longitude and a radius of 50-20000 m.")
+    get_db().execute("UPDATE malls SET lat=?, lon=?, radius_m=? WHERE id=?",
+                     (plat, plon, radius, mall_id))
     get_db().commit()
 
 

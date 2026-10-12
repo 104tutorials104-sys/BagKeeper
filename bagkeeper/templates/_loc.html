@@ -1,0 +1,6 @@
+{# Reusable "use my location" block. Set `zone_select` (CSS selector) to auto-suggest the nearest place. #}
+<div data-loc{% if zone_select %} data-zone-select="{{ zone_select }}"{% endif %} style="margin:8px 0 4px">
+  <button type="button" class="btn ghost" data-loc-btn style="margin-top:0">{{ loc_label or 'Use my current location' }}</button>
+  <p class="muted" data-loc-msg style="margin:8px 0 0">Optional. We only ask your phone for location when you tap this.</p>
+  <input type="hidden" name="lat"><input type="hidden" name="lon"><input type="hidden" name="acc">
+</div>

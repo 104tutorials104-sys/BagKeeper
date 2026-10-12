@@ -7,8 +7,25 @@
   <select id="mall_id" name="mall_id" required>
     {% for m in malls %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}
   </select>
-  <label for="pickup_spot">Where are you?</label>
-  <input id="pickup_spot" name="pickup_spot" placeholder="e.g. Level 2, outside Zara" required>
+
+  <label>Where are you?</label>
+  {% set zone_select = '#zone_id' %}{% set loc_label = 'Find me with GPS' %}
+  {% include "_loc.html" %}
+
+  <label for="zone_id">Or choose the place</label>
+  <select id="zone_id" name="zone_id" data-filter-by="mall_id" required>
+    <option value="">Choose...</option>
+    {% for z in zones %}
+      <option value="{{ z.id }}" data-mall="{{ z.mall_id }}"{% if z.lat is not none %} data-lat="{{ z.lat }}" data-lon="{{ z.lon }}"{% endif %}>{{ z.name }}</option>
+    {% endfor %}
+  </select>
+
+  <label for="level">Level</label>
+  <input id="level" name="level" placeholder="Only if the mall has several floors (e.g. L2)">
+
+  <label for="details">Details</label>
+  <input id="details" name="details" placeholder="e.g. outside Zara, red shopping bags">
+
   <label for="bag_count">Number of bags</label>
   <select id="bag_count" name="bag_count">
     {% for n in range(1, 11) %}<option>{{ n }}</option>{% endfor %}
@@ -18,4 +35,5 @@
   <p class="muted">Fee: {{ cfg.BASE_FEE_CENTS|money }} for the first bag, {{ cfg.EXTRA_BAG_FEE_CENTS|money }} per extra bag. Payment is not yet enabled in this demo.</p>
   <button class="btn">Request pickup</button>
 </form>
+<script src="{{ url_for('static', filename='location.js') }}"></script>
 {% endblock %}

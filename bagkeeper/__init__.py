@@ -39,10 +39,9 @@ def _seed_demo(app: Flask) -> None:
         return
     from . import services
     with app.app_context():
+        from . import sawgrass
         conn = db.get_db()
-        conn.execute("INSERT OR IGNORE INTO malls (name) VALUES ('Sawgrass Mills')")
-        conn.commit()
-        mall_id = conn.execute("SELECT id FROM malls WHERE name='Sawgrass Mills'").fetchone()[0]
+        mall_id = sawgrass.ensure(conn)
         for name, phone, role in (("Demo Runner", "0500000002", "runner"),
                                   ("Demo Customer", "0500000003", "customer")):
             try:

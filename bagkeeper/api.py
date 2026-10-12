@@ -11,7 +11,8 @@ bp = Blueprint("api", __name__)
 def _public(o):
     d = {k: o[k] for k in (
         "id", "code", "status", "mall", "pickup_spot", "dropoff_spot", "bag_count",
-        "seal_no", "seal_ok", "storage_slot", "fee_cents", "created_at", "updated_at")}
+        "seal_no", "seal_ok", "storage_slot", "fee_cents", "created_at", "updated_at",
+        "pickup_lat", "pickup_lon", "pickup_acc", "dropoff_lat", "dropoff_lon", "dropoff_acc")}
     if o["status"] in ("return_requested", "out_for_delivery"):
         d["handover_code"] = o["handover_code"]
     return d
@@ -33,9 +34,18 @@ def orders():
 @login_required("customer")
 def create():
     data = request.get_json(force=True)
-    oid = svc.create_order(g.user["id"], int(data["mall_id"]), data.get("pickup_spot", ""),
-                           data.get("bag_count", 1), data.get("note", ""))
+    oid = svc.create_order(
+        g.user["id"], int(data["mall_id"]), data.get("zone_id"), data.get("bag_count", 1),
+        details=data.get("details", ""), note=data.get("note", ""),
+        level=data.get("level", ""), lat=data.get("lat"), lon=data.get("lon"),
+        acc=data.get("accuracy"))
     return jsonify(_public(svc.get_order(oid))), 201
+
+
+@bp.get("/malls/<int:mall_id>/zones")
+def zones(mall_id):
+    return jsonify([{"id": z["id"], "name": z["name"], "kind": z["kind"],
+                     "lat": z["lat"], "lon": z["lon"]} for z in svc.zones(mall_id)])
 
 
 def _mine(order_id):
@@ -59,7 +69,9 @@ def detail(order_id):
 def return_bag(order_id):
     if _mine(order_id) is None:
         return jsonify(error="not found"), 404
-    svc.request_return(order_id, g.user["id"], (request.get_json(force=True) or {}).get("dropoff_spot", ""))
+    d = request.get_json(force=True) or {}
+    svc.request_return(order_id, g.user["id"], d.get("zone_id"), d.get("details", ""),
+                       d.get("lat"), d.get("lon"), d.get("accuracy"))
     return jsonify(_public(svc.get_order(order_id)))
 
 

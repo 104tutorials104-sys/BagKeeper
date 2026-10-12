@@ -19,6 +19,46 @@
 </details>
 
 <details class="card">
+  <summary>Places and map settings</summary>
+  {% for m in malls %}
+    <h3 style="margin:18px 0 6px">{{ m.name }}</h3>
+    <p class="muted">Centre: {{ '%.5f, %.5f'|format(m.lat, m.lon) if m.lat is not none else 'not set' }}
+      &middot; radius {{ m.radius_m or '-' }} m. Used only to warn when a GPS pin is outside the mall.</p>
+    <form method="post" action="{{ url_for('web.mall_location', mall_id=m.id) }}">
+      {% set zone_select = none %}{% set loc_label = 'Stand at the mall centre - use my location' %}
+      {% include "_loc.html" %}
+      <label>Latitude</label><input name="lat_manual" placeholder="or type: 26.15000" oninput="this.form.lat.value=this.value">
+      <label>Longitude</label><input name="lon_manual" placeholder="-80.32200" oninput="this.form.lon.value=this.value">
+      <label>Radius (metres)</label><input name="radius_m" value="{{ m.radius_m or 1500 }}" inputmode="numeric">
+      <button class="btn sm" style="margin-top:12px">Save location</button>
+    </form>
+    <p class="muted" style="margin-top:16px">Places shoppers can choose (tap to hide or show):</p>
+    {% for z in all_zones if z.mall_id == m.id %}
+      <form method="post" action="{{ url_for('web.toggle_zone', zone_id=z.id) }}" class="row" style="margin:4px 0">
+        <span{% if not z.active %} class="muted" style="text-decoration:line-through"{% endif %}>{{ z.name }}
+          <span class="badge">{{ z.kind }}</span>{% if z.lat is not none %} <span class="badge ok">mapped</span>{% endif %}</span>
+        <button class="link">{{ 'Hide' if z.active else 'Show' }}</button>
+      </form>
+    {% endfor %}
+    <form method="post" action="{{ url_for('web.add_zone') }}">
+      <input type="hidden" name="mall_id" value="{{ m.id }}">
+      <label>Add a place</label>
+      <input name="name" placeholder="e.g. Lot C, near the cinema" required>
+      <select name="kind" style="margin-top:8px">
+        <option value="area">Area inside the mall</option>
+        <option value="entrance">Entrance / exit</option>
+        <option value="parking">Parking</option>
+      </select>
+      {% set loc_label = 'Use my location for this place' %}
+      {% include "_loc.html" %}
+      <p class="muted">Optional: stand at the spot and tap the button to save its map position, so we can suggest it to nearby shoppers.</p>
+      <button class="btn sm" style="margin-top:12px">Add place</button>
+    </form>
+  {% endfor %}
+</details>
+<script src="{{ url_for('static', filename='location.js') }}"></script>
+
+<details class="card">
   <summary>Add a runner or admin</summary>
   <form method="post" action="{{ url_for('web.add_staff') }}">
     <label for="sname">Name</label><input id="sname" name="name" required>

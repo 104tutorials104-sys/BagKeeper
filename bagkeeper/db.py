@@ -16,7 +16,21 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE TABLE IF NOT EXISTS malls (
     id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
+    name TEXT NOT NULL UNIQUE,
+    lat REAL,                                -- mall centre, used to sanity-check GPS pins
+    lon REAL,
+    radius_m INTEGER,
+    levels TEXT NOT NULL DEFAULT 'Ground'    -- comma-separated; one level = no level question
+);
+CREATE TABLE IF NOT EXISTS zones (           -- named places shoppers can pick
+    id INTEGER PRIMARY KEY,
+    mall_id INTEGER NOT NULL REFERENCES malls(id),
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,                      -- area | entrance | parking
+    lat REAL,                                -- optional map position
+    lon REAL,
+    active INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (mall_id, name)
 );
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY,
@@ -74,11 +88,23 @@ def init_db():
     db = get_db()
     db.executescript(SCHEMA)
     # lightweight migration for databases created before runner/mall support
-    cols = {r["name"] for r in db.execute("PRAGMA table_info(users)")}
-    if "mall_id" not in cols:
-        db.execute("ALTER TABLE users ADD COLUMN mall_id INTEGER REFERENCES malls(id)")
-    if "on_duty" not in cols:
-        db.execute("ALTER TABLE users ADD COLUMN on_duty INTEGER NOT NULL DEFAULT 0")
+    wanted = {
+        "users": [("mall_id", "INTEGER REFERENCES malls(id)"),
+                  ("on_duty", "INTEGER NOT NULL DEFAULT 0")],
+        "malls": [("lat", "REAL"), ("lon", "REAL"), ("radius_m", "INTEGER"),
+                  ("levels", "TEXT NOT NULL DEFAULT 'Ground'")],
+        "orders": [("pickup_zone_id", "INTEGER REFERENCES zones(id)"),
+                   ("pickup_level", "TEXT"), ("pickup_details", "TEXT"),
+                   ("pickup_lat", "REAL"), ("pickup_lon", "REAL"), ("pickup_acc", "REAL"),
+                   ("dropoff_zone_id", "INTEGER REFERENCES zones(id)"),
+                   ("dropoff_details", "TEXT"),
+                   ("dropoff_lat", "REAL"), ("dropoff_lon", "REAL"), ("dropoff_acc", "REAL")],
+    }
+    for table, cols_to_add in wanted.items():
+        have = {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
+        for col, decl in cols_to_add:
+            if col not in have:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
     db.commit()
 
 

@@ -15,7 +15,22 @@
   <div class="row"><span class="muted">Mall</span><b>{{ o.mall }}</b></div>
   <div class="row"><span class="muted">Picked up at</span><b>{{ o.pickup_spot }}</b></div>
   <div class="row"><span class="muted">Bags</span><b>{{ o.bag_count }}</b></div>
+  {% if show_pins and o.pickup_lat is not none %}
+    <div class="row"><span class="muted">Pickup GPS</span>
+      <span><span class="badge {{ 'ok' if o.pickup_acc <= 30 else 'warn' }}">&plusmn;{{ o.pickup_acc|round|int }} m</span>
+      <a href="https://www.google.com/maps?q={{ o.pickup_lat }},{{ o.pickup_lon }}" target="_blank" rel="noopener">Open in Maps</a></span></div>
+    {% if pickup_in_mall == false %}<p class="badge warn">This pin looks outside the mall - confirm with the customer.</p>{% endif %}
+  {% endif %}
   {% if o.dropoff_spot %}<div class="row"><span class="muted">Deliver to</span><b>{{ o.dropoff_spot }}</b></div>{% endif %}
+  {% if show_pins and o.dropoff_lat is not none %}
+    <div class="row"><span class="muted">Delivery GPS</span>
+      <span><span class="badge {{ 'ok' if o.dropoff_acc <= 30 else 'warn' }}">&plusmn;{{ o.dropoff_acc|round|int }} m</span>
+      <a href="https://www.google.com/maps?q={{ o.dropoff_lat }},{{ o.dropoff_lon }}" target="_blank" rel="noopener">Open in Maps</a></span></div>
+    {% if dropoff_in_mall == false %}<p class="badge warn">This pin looks outside the mall property - confirm with the customer.</p>{% endif %}
+  {% endif %}
+  {% if staff and not show_pins and (o.pickup_lat is not none or o.dropoff_lat is not none) %}
+    <p class="muted">Exact GPS pin is shown once you take this job.</p>
+  {% endif %}
   {% if o.seal_no %}<div class="row"><span class="muted">Seal no.</span><b>{{ o.seal_no }}</b></div>{% endif %}
   {% if o.storage_slot and staff %}<div class="row"><span class="muted">Storage slot</span><b>{{ o.storage_slot }}</b></div>{% endif %}
   {% if staff %}
@@ -36,10 +51,22 @@
   {% elif o.status in ('picked_up','stored') %}
     <h2>Done shopping?</h2>
     <form class="card" method="post" action="{{ url_for('web.return_bag', order_id=o.id) }}">
-      <label for="dropoff_spot">Where should we bring your bags?</label>
-      <input id="dropoff_spot" name="dropoff_spot" placeholder="e.g. Car park B, bay 114 - white Corolla" required>
+      <label>Where should we bring your bags?</label>
+      {% set zone_select = '#zone_id' %}{% set loc_label = "I'm at my car - use my location" %}
+      {% include "_loc.html" %}
+      <label for="zone_id">Parking area or exit</label>
+      <select id="zone_id" name="zone_id" required>
+        <option value="">Choose...</option>
+        {% for z in return_zones %}
+          <option value="{{ z.id }}"{% if z.lat is not none %} data-lat="{{ z.lat }}" data-lon="{{ z.lon }}"{% endif %}>{{ z.name }}</option>
+        {% endfor %}
+      </select>
+      <label for="details">Details</label>
+      <input id="details" name="details" placeholder="e.g. row F, bay 114, white Corolla, plate ABC123">
+      <p class="muted">Pick an exit instead of a parking area if you'd like to meet the runner there.</p>
       <button class="btn">Bring my bags</button>
     </form>
+    <script src="{{ url_for('static', filename='location.js') }}"></script>
   {% elif o.status in ('return_requested','out_for_delivery') %}
     <h2>Your handover code</h2>
     <div class="code">{{ o.handover_code }}</div>
