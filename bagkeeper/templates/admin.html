@@ -26,6 +26,7 @@
       &middot; radius {{ m.radius_m or '-' }} m. Used only to warn when a GPS pin is outside the mall.</p>
     <form method="post" action="{{ url_for('web.mall_location', mall_id=m.id) }}">
       {% set zone_select = none %}{% set loc_label = 'Stand at the mall centre - use my location' %}
+      {% set loc_mall = m.id %}{% set loc_details = none %}
       {% include "_loc.html" %}
       <label>Latitude</label><input name="lat_manual" placeholder="or type: 26.15000" oninput="this.form.lat.value=this.value">
       <label>Longitude</label><input name="lon_manual" placeholder="-80.32200" oninput="this.form.lon.value=this.value">
@@ -57,6 +58,7 @@
   {% endfor %}
 </details>
 <script src="{{ url_for('static', filename='location.js') }}"></script>
+<script src="{{ url_for('static', filename='mappick.js') }}"></script>
 
 <details class="card">
   <summary>Add a runner or admin</summary>

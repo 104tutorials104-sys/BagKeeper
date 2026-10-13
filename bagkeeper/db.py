@@ -96,6 +96,7 @@ def init_db():
         "orders": [("pickup_zone_id", "INTEGER REFERENCES zones(id)"),
                    ("pickup_level", "TEXT"), ("pickup_details", "TEXT"),
                    ("pickup_lat", "REAL"), ("pickup_lon", "REAL"), ("pickup_acc", "REAL"),
+                   ("pickup_src", "TEXT"), ("dropoff_src", "TEXT"),    # gps | map
                    ("dropoff_zone_id", "INTEGER REFERENCES zones(id)"),
                    ("dropoff_details", "TEXT"),
                    ("dropoff_lat", "REAL"), ("dropoff_lon", "REAL"), ("dropoff_acc", "REAL")],

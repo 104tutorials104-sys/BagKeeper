@@ -28,7 +28,20 @@
     var f = function (n) { return box.querySelector("input[name=" + n + "]"); };
     var select = box.dataset.zoneSelect ? document.querySelector(box.dataset.zoneSelect) : null;
 
-    function clear() { f("lat").value = f("lon").value = f("acc").value = ""; }
+    function clear() {
+      f("lat").value = f("lon").value = f("acc").value = f("src").value = "";
+      if (select) select.required = true;
+    }
+
+    // a pin placed on the map (see mappick.js): the place list becomes optional;
+    // suggest the nearest mapped place too
+    box.addEventListener("bk-pin", function (e) {
+      if (select) select.required = false;
+      if (select && !select.value) {
+        var z = suggestZone(select, e.detail.lat, e.detail.lon);
+        if (z) { select.value = z.value; msg.textContent += " Nearest place: " + z.textContent.trim() + "."; }
+      }
+    });
     function say(t, tone) { msg.textContent = t; msg.style.color = tone ? "var(--" + tone + ")" : ""; }
 
     btn.addEventListener("click", function () {
@@ -41,6 +54,8 @@
         var c = p.coords, acc = Math.round(c.accuracy);
         if (acc > MAX) { say("Signal too weak here (±" + acc + " m). Please choose where you are below.", "bad"); return; }
         f("lat").value = c.latitude; f("lon").value = c.longitude; f("acc").value = c.accuracy;
+        f("src").value = "gps";
+        if (select && acc <= GOOD) select.required = false;   // only a good fix replaces the list
         if (acc <= GOOD) say("Location found (±" + acc + " m).", "ok");
         else say("Approximate location (±" + acc + " m). Please also choose the place below.", "warn");
         if (select && !select.value) {

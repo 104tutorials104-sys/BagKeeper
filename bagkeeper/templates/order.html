@@ -16,15 +16,15 @@
   <div class="row"><span class="muted">Picked up at</span><b>{{ o.pickup_spot }}</b></div>
   <div class="row"><span class="muted">Bags</span><b>{{ o.bag_count }}</b></div>
   {% if show_pins and o.pickup_lat is not none %}
-    <div class="row"><span class="muted">Pickup GPS</span>
-      <span><span class="badge {{ 'ok' if o.pickup_acc <= 30 else 'warn' }}">&plusmn;{{ o.pickup_acc|round|int }} m</span>
+    <div class="row"><span class="muted">Pickup pin</span>
+      <span><span class="badge {{ 'ok' if o.pickup_src == 'map' or o.pickup_acc <= 30 else 'warn' }}">{{ 'placed on map' if o.pickup_src == 'map' else '±' ~ (o.pickup_acc|round|int) ~ ' m GPS' }}</span>
       <a href="https://www.google.com/maps?q={{ o.pickup_lat }},{{ o.pickup_lon }}" target="_blank" rel="noopener">Open in Maps</a></span></div>
     {% if pickup_in_mall == false %}<p class="badge warn">This pin looks outside the mall - confirm with the customer.</p>{% endif %}
   {% endif %}
   {% if o.dropoff_spot %}<div class="row"><span class="muted">Deliver to</span><b>{{ o.dropoff_spot }}</b></div>{% endif %}
   {% if show_pins and o.dropoff_lat is not none %}
-    <div class="row"><span class="muted">Delivery GPS</span>
-      <span><span class="badge {{ 'ok' if o.dropoff_acc <= 30 else 'warn' }}">&plusmn;{{ o.dropoff_acc|round|int }} m</span>
+    <div class="row"><span class="muted">Delivery pin</span>
+      <span><span class="badge {{ 'ok' if o.dropoff_src == 'map' or o.dropoff_acc <= 30 else 'warn' }}">{{ 'placed on map' if o.dropoff_src == 'map' else '±' ~ (o.dropoff_acc|round|int) ~ ' m GPS' }}</span>
       <a href="https://www.google.com/maps?q={{ o.dropoff_lat }},{{ o.dropoff_lon }}" target="_blank" rel="noopener">Open in Maps</a></span></div>
     {% if dropoff_in_mall == false %}<p class="badge warn">This pin looks outside the mall property - confirm with the customer.</p>{% endif %}
   {% endif %}
@@ -53,6 +53,7 @@
     <form class="card" method="post" action="{{ url_for('web.return_bag', order_id=o.id) }}">
       <label>Where should we bring your bags?</label>
       {% set zone_select = '#zone_id' %}{% set loc_label = "I'm at my car - use my location" %}
+      {% set loc_mall = o.mall_id %}{% set loc_details = '#details' %}
       {% include "_loc.html" %}
       <label for="zone_id">Parking area or exit</label>
       <select id="zone_id" name="zone_id" required>
@@ -67,6 +68,7 @@
       <button class="btn">Bring my bags</button>
     </form>
     <script src="{{ url_for('static', filename='location.js') }}"></script>
+    <script src="{{ url_for('static', filename='mappick.js') }}"></script>
   {% elif o.status in ('return_requested','out_for_delivery') %}
     <h2>Your handover code</h2>
     <div class="code">{{ o.handover_code }}</div>

@@ -10,6 +10,7 @@
 
   <label>Where are you?</label>
   {% set zone_select = '#zone_id' %}{% set loc_label = 'Find me with GPS' %}
+  {% set loc_mall_select = '#mall_id' %}{% set loc_details = '#details' %}
   {% include "_loc.html" %}
 
   <label for="zone_id">Or choose the place</label>
@@ -36,4 +37,5 @@
   <button class="btn">Request pickup</button>
 </form>
 <script src="{{ url_for('static', filename='location.js') }}"></script>
+<script src="{{ url_for('static', filename='mappick.js') }}"></script>
 {% endblock %}

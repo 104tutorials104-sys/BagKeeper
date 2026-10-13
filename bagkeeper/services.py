@@ -172,6 +172,26 @@ def get_mall(mall_id):
     return get_db().execute("SELECT * FROM malls WHERE id=?", (mall_id,)).fetchone()
 
 
+def map_data(mall_id):
+    """Everything the map picker needs for one mall."""
+    import re
+    from pathlib import Path
+    mall = get_mall(mall_id)
+    if mall is None:
+        return None
+    slug = re.sub(r"[^a-z0-9]+", "-", mall["name"].lower()).strip("-")
+    places = Path(current_app.static_folder) / "data" / f"{slug}.geojson"
+    return {
+        "name": mall["name"],
+        "center": [mall["lon"], mall["lat"]] if mall["lat"] is not None else None,
+        "radius_m": mall["radius_m"],
+        "places_url": f"/static/data/{slug}.geojson" if places.exists() else None,
+        "zones": [{"id": z["id"], "name": z["name"], "kind": z["kind"],
+                   "lat": z["lat"], "lon": z["lon"]}
+                  for z in zones(mall_id) if z["lat"] is not None],
+    }
+
+
 def zones(mall_id=None, kinds=None, include_inactive=False):
     sql, args = "SELECT * FROM zones WHERE 1=1", []
     if mall_id:
@@ -211,6 +231,17 @@ def parse_pin(lat, lon, acc):
     return lat, lon, acc
 
 
+def parse_any_pin(lat, lon, acc, src):
+    """Pin from either source. src 'map' = placed by the customer on the map (accuracy 0);
+    anything else is treated as a GPS fix and needs a usable accuracy.
+    Returns (lat, lon, accuracy, src) or four Nones."""
+    if src == "map":
+        plat, plon, _ = parse_pin(lat, lon, 0)
+        return (plat, plon, 0.0, "map") if plat is not None else (None, None, None, None)
+    plat, plon, pacc = parse_pin(lat, lon, acc)
+    return (plat, plon, pacc, "gps") if plat is not None else (None, None, None, None)
+
+
 def distance_m(lat1, lon1, lat2, lon2):
     from math import asin, cos, radians, sin, sqrt
     p1, p2 = radians(lat1), radians(lat2)
@@ -225,6 +256,42 @@ def pin_inside_mall(mall, lat, lon):
     return distance_m(lat, lon, mall["lat"], mall["lon"]) <= mall["radius_m"]
 
 
+_places_cache = {}
+
+
+def _nearest_place(mall, lat, lon, within_m=150):
+    """Name of the closest store/place in the mall's map file, or None."""
+    import json
+    import re
+    from pathlib import Path
+    slug = re.sub(r"[^a-z0-9]+", "-", mall["name"].lower()).strip("-")
+    if slug not in _places_cache:
+        path = Path(current_app.static_folder) / "data" / f"{slug}.geojson"
+        try:
+            _places_cache[slug] = json.loads(path.read_text(encoding="utf-8-sig"))["features"]
+        except (OSError, ValueError, KeyError):
+            _places_cache[slug] = []
+    best, best_d = None, within_m
+    for f in _places_cache[slug]:
+        lon2, lat2 = f["geometry"]["coordinates"]
+        d = distance_m(lat, lon, lat2, lon2)
+        if d < best_d:
+            best, best_d = f["properties"]["name"], d
+    return best
+
+
+def _pin_stands_alone(acc, src):
+    """A pin can replace choosing a place only if it was placed on the map or is a good GPS fix."""
+    return src == "map" or (acc is not None and acc <= GOOD_ACCURACY_M)
+
+
+def _pin_label(mall, lat, lon, details, src="map"):
+    near = _nearest_place(mall, lat, lon)
+    kind = "Pin on map" if src == "map" else "GPS pin"
+    text = f"{kind} near {near}" if near else kind
+    return f"{text} - {details.strip()}" if details and details.strip() else text
+
+
 def _where(zone, level, details, mall):
     parts = [zone["name"]]
     levels = [x.strip() for x in (mall["levels"] or "").split(",") if x.strip()]
@@ -235,13 +302,19 @@ def _where(zone, level, details, mall):
 
 
 def create_order(customer_id, mall_id, zone_id, bag_count, details="", note="",
-                 level="", lat=None, lon=None, acc=None):
+                 level="", lat=None, lon=None, acc=None, src=None):
     mall = get_mall(mall_id)
     if mall is None:
         raise RuleError("Choose a mall.")
-    zone = _zone(zone_id, mall_id, ("area", "entrance", "parking"))
-    pickup_spot = _where(zone, level, details, mall)
-    plat, plon, pacc = parse_pin(lat, lon, acc)
+    plat, plon, pacc, psrc = parse_any_pin(lat, lon, acc, src)
+    if zone_id in (None, ""):
+        if plat is None or not _pin_stands_alone(pacc, psrc):
+            raise RuleError("Choose where you are from the list, or drop a pin on the map.")
+        zone = None
+        pickup_spot = _pin_label(mall, plat, plon, details, psrc)
+    else:
+        zone = _zone(zone_id, mall_id, ("area", "entrance", "parking"))
+        pickup_spot = _where(zone, level, details, mall)
     bag_count = max(1, min(int(bag_count or 1), 10))
     cfg = current_app.config
     fee = cfg["BASE_FEE_CENTS"] + (bag_count - 1) * cfg["EXTRA_BAG_FEE_CENTS"]
@@ -249,12 +322,12 @@ def create_order(customer_id, mall_id, zone_id, bag_count, details="", note="",
     code = "BK-" + secrets.token_hex(2).upper()
     cur = db.execute(
         """INSERT INTO orders (code, customer_id, mall_id, pickup_spot, pickup_zone_id,
-               pickup_level, pickup_details, pickup_lat, pickup_lon, pickup_acc,
-               bag_count, note, fee_cents) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (code, customer_id, mall_id, pickup_spot, zone["id"], level or None,
-         (details or "").strip() or None, plat, plon, pacc, bag_count, note.strip(), fee),
+               pickup_level, pickup_details, pickup_lat, pickup_lon, pickup_acc, pickup_src,
+               bag_count, note, fee_cents) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (code, customer_id, mall_id, pickup_spot, zone["id"] if zone else None, level or None,
+         (details or "").strip() or None, plat, plon, pacc, psrc, bag_count, note.strip(), fee),
     )
-    where = pickup_spot + (f" (GPS +/-{pacc:.0f} m)" if pacc is not None else "")
+    where = pickup_spot + _pin_note(pacc, psrc)
     log(cur.lastrowid, customer_id, "requested", f"{bag_count} bag(s) at {where}")
     db.commit()
     return cur.lastrowid
@@ -271,23 +344,38 @@ def cancel_order(order_id, customer_id):
     get_db().commit()
 
 
-def request_return(order_id, customer_id, zone_id, details="", lat=None, lon=None, acc=None):
+def _pin_note(acc, src):
+    if src == "map":
+        return " (pin placed on map)"
+    return f" (GPS +/-{acc:.0f} m)" if acc is not None else ""
+
+
+def request_return(order_id, customer_id, zone_id, details="", lat=None, lon=None, acc=None,
+                   src=None):
     o = get_order(order_id)
     if o["customer_id"] != customer_id:
         raise RuleError("Not your order.")
     if o["status"] not in ("picked_up", "stored"):
         raise RuleError("Bag can't be returned at this stage.")
     mall = get_mall(o["mall_id"])
-    zone = _zone(zone_id, o["mall_id"], ("parking", "entrance"))
-    dlat, dlon, dacc = parse_pin(lat, lon, acc)
-    if not (details or "").strip() and dlat is None:
-        raise RuleError("Add a few details (row, bay, car colour) or use your location.")
-    dropoff_spot = _where(zone, "", details, mall)
+    dlat, dlon, dacc, dsrc = parse_any_pin(lat, lon, acc, src)
+    if zone_id in (None, ""):
+        if dlat is None or not _pin_stands_alone(dacc, dsrc):
+            raise RuleError("Choose a parking area or exit, or drop a pin on the map.")
+        zone = None
+        dropoff_spot = _pin_label(mall, dlat, dlon, details, dsrc)
+    else:
+        zone = _zone(zone_id, o["mall_id"], ("parking", "entrance"))
+        if not (details or "").strip() and dlat is None:
+            raise RuleError("Add a few details (row, bay, car colour) or use your location.")
+        dropoff_spot = _where(zone, "", details, mall)
     code = f"{secrets.randbelow(10000):04d}"
     _set(order_id, status="return_requested", dropoff_spot=dropoff_spot,
-         dropoff_zone_id=zone["id"], dropoff_details=(details or "").strip() or None,
-         dropoff_lat=dlat, dropoff_lon=dlon, dropoff_acc=dacc, handover_code=code)
-    where = dropoff_spot + (f" (GPS +/-{dacc:.0f} m)" if dacc is not None else "")
+         dropoff_zone_id=zone["id"] if zone else None,
+         dropoff_details=(details or "").strip() or None,
+         dropoff_lat=dlat, dropoff_lon=dlon, dropoff_acc=dacc, dropoff_src=dsrc,
+         handover_code=code)
+    where = dropoff_spot + _pin_note(dacc, dsrc)
     log(order_id, customer_id, "return_requested", where)
     get_db().commit()
 

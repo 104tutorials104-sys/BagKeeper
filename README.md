@@ -29,6 +29,21 @@ browser profile to play both sides.
 
 Data (database + photos) lives on the `/data` disk. Back it up.
 
+## Map and open-source credits
+
+The "Place a pin on the map" picker is built from open-source parts, no API keys or fees:
+
+| Part | What | License |
+|---|---|---|
+| [MapLibre GL JS](https://github.com/maplibre/maplibre-gl-js) 5.x | map engine, loaded from jsDelivr only when the picker opens | BSD-3-Clause |
+| [OpenFreeMap](https://github.com/hyperknot/openfreemap) | free hosted vector tiles (public instance, no uptime guarantee) | OpenMapTiles / ODbL data |
+| OpenStreetMap | base map and the store points in `bagkeeper/static/data/<mall>.geojson` | ODbL, © OpenStreetMap contributors |
+
+Store points were extracted once from OpenStreetMap (named shops and restaurants within 1.1 km of Sawgrass Mills,
+166 features). Coverage is partial - Sawgrass has ~350 stores - so the admin can map more places.
+Always keep the "© OpenStreetMap contributors" credit visible. For heavy production traffic, host the tiles
+yourself (Protomaps PMTiles) instead of relying on the public OpenFreeMap instance.
+
 ## Layout
 
 | Path | Purpose |

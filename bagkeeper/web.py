@@ -92,7 +92,7 @@ def new_order():
                 g.user["id"], int(f["mall_id"]), f.get("zone_id"), f.get("bag_count", 1),
                 details=f.get("details", ""), note=f.get("note", ""),
                 level=f.get("level", ""), lat=f.get("lat"), lon=f.get("lon"),
-                acc=f.get("acc"))
+                acc=f.get("acc"), src=f.get("src"))
         except (svc.RuleError, ValueError) as e:
             flash(str(e) or "Check the form.", "error")
         else:
@@ -132,7 +132,7 @@ def return_bag(order_id):
     f = request.form
     return _act(order_id, lambda: svc.request_return(
         order_id, g.user["id"], f.get("zone_id"), f.get("details", ""),
-        f.get("lat"), f.get("lon"), f.get("acc")))
+        f.get("lat"), f.get("lon"), f.get("acc"), f.get("src")))
 
 
 # ---------- runner ----------

@@ -1,6 +1,12 @@
-{# Reusable "use my location" block. Set `zone_select` (CSS selector) to auto-suggest the nearest place. #}
-<div data-loc{% if zone_select %} data-zone-select="{{ zone_select }}"{% endif %} style="margin:8px 0 4px">
+{# Reusable location block: GPS button + optional "place a pin on the map" button.
+   Set before including:  zone_select (CSS selector to auto-suggest the nearest place),
+   loc_label, loc_mall (mall id) or loc_mall_select (selector of a mall <select>), loc_details
+   (selector of a details input to fill in when a store is tapped). #}
+<div data-loc{% if zone_select %} data-zone-select="{{ zone_select }}"{% endif %}{% if loc_mall %} data-mall="{{ loc_mall }}"{% endif %}{% if loc_mall_select %} data-mall-select="{{ loc_mall_select }}"{% endif %}{% if loc_details %} data-details="{{ loc_details }}"{% endif %} style="margin:8px 0 4px">
   <button type="button" class="btn ghost" data-loc-btn style="margin-top:0">{{ loc_label or 'Use my current location' }}</button>
-  <p class="muted" data-loc-msg style="margin:8px 0 0">Optional. We only ask your phone for location when you tap this.</p>
-  <input type="hidden" name="lat"><input type="hidden" name="lon"><input type="hidden" name="acc">
+  {% if loc_mall or loc_mall_select %}
+  <button type="button" class="btn ghost" data-map-btn style="margin-top:8px">Place a pin on the map</button>
+  {% endif %}
+  <p class="muted" data-loc-msg style="margin:8px 0 0">Optional. We only ask your phone for location when you tap GPS.</p>
+  <input type="hidden" name="lat"><input type="hidden" name="lon"><input type="hidden" name="acc"><input type="hidden" name="src">
 </div>

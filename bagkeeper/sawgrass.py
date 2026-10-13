@@ -5,8 +5,8 @@ Per-zone map positions are left empty on purpose (admin can set them by standing
 the spot and tapping "Use my location"). The centre point is approximate.
 """
 NAME = "Sawgrass Mills"
-CENTER = (26.1500, -80.3220)     # approximate
-RADIUS_M = 1800                  # the property is very large; admin can adjust
+CENTER = (26.1505, -80.3217)     # between the main mall buildings and The Colonnade (OSM)
+RADIUS_M = 1300                  # covers the mall and its perimeter lots; admin can adjust
 LEVELS = "Ground"                # single-level mall
 
 ZONES = [

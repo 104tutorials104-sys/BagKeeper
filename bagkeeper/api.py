@@ -12,7 +12,8 @@ def _public(o):
     d = {k: o[k] for k in (
         "id", "code", "status", "mall", "pickup_spot", "dropoff_spot", "bag_count",
         "seal_no", "seal_ok", "storage_slot", "fee_cents", "created_at", "updated_at",
-        "pickup_lat", "pickup_lon", "pickup_acc", "dropoff_lat", "dropoff_lon", "dropoff_acc")}
+        "pickup_lat", "pickup_lon", "pickup_acc", "pickup_src",
+        "dropoff_lat", "dropoff_lon", "dropoff_acc", "dropoff_src")}
     if o["status"] in ("return_requested", "out_for_delivery"):
         d["handover_code"] = o["handover_code"]
     return d
@@ -38,8 +39,16 @@ def create():
         g.user["id"], int(data["mall_id"]), data.get("zone_id"), data.get("bag_count", 1),
         details=data.get("details", ""), note=data.get("note", ""),
         level=data.get("level", ""), lat=data.get("lat"), lon=data.get("lon"),
-        acc=data.get("accuracy"))
+        acc=data.get("accuracy"), src=data.get("source"))   # source: "gps" | "map"
     return jsonify(_public(svc.get_order(oid))), 201
+
+
+@bp.get("/malls/<int:mall_id>/map")
+def mall_map(mall_id):
+    data = svc.map_data(mall_id)
+    if data is None:
+        return jsonify(error="not found"), 404
+    return jsonify(data)
 
 
 @bp.get("/malls/<int:mall_id>/zones")
@@ -71,7 +80,7 @@ def return_bag(order_id):
         return jsonify(error="not found"), 404
     d = request.get_json(force=True) or {}
     svc.request_return(order_id, g.user["id"], d.get("zone_id"), d.get("details", ""),
-                       d.get("lat"), d.get("lon"), d.get("accuracy"))
+                       d.get("lat"), d.get("lon"), d.get("accuracy"), d.get("source"))
     return jsonify(_public(svc.get_order(order_id)))
 
 
