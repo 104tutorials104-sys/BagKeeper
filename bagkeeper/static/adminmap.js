@@ -22,6 +22,10 @@
       attributionControl: { compact: true, customAttribution: "Stores &copy; OpenStreetMap contributors" }
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
+    // blue dot: stand at a store, tap it, then tap the map right where you are
+    map.addControl(new maplibregl.GeolocateControl({
+      positionOptions: { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+      trackUserLocation: true, showAccuracyCircle: true, showUserLocation: true }));
     var marker = new maplibregl.Marker({ draggable: true, color: "#D97706" });
     var loaded = false;
 

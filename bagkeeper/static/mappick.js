@@ -51,13 +51,13 @@
     ov.querySelector("[data-x]").onclick = close;
     ov.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
 
-    function place(lng, lat, name) {
+    function place(lng, lat, name, note) {
       chosen = { lat: lat, lon: lng, name: name || null };
       marker.setLngLat([lng, lat]).addTo(map);
       ok.disabled = false;
       msg.style.color = "";
-      msg.textContent = name ? "Selected: " + name + ". Drag the pin to adjust."
-                             : "Pin placed. Drag it to fine-tune, then tap Use this spot.";
+      msg.textContent = note || (name ? "Selected: " + name + ". Drag the pin to adjust."
+                                      : "Pin placed. Drag it to fine-tune, then tap Use this spot.");
     }
 
     Promise.all([loadLib(), json("/api/malls/" + opts.mallId + "/map")]).then(function (res) {
@@ -69,6 +69,22 @@
         attributionControl: { compact: true, customAttribution: "Stores &copy; OpenStreetMap contributors" }
       });
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
+      // "show where I am": blue dot + accuracy circle from the phone's GPS (asks permission on tap)
+      var geo = new maplibregl.GeolocateControl({
+        positionOptions: { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+        trackUserLocation: true, showAccuracyCircle: true, showUserLocation: true });
+      map.addControl(geo);
+      geo.on("geolocate", function (p) {
+        var acc = Math.round(p.coords.accuracy);
+        var weak = acc > 50 ? " Indoors this can be off by a lot - drag the pin onto your exact spot." : "";
+        if (!chosen) place(p.coords.longitude, p.coords.latitude, null,
+                           "Pin placed at your location (±" + acc + " m)." + weak);
+        else { msg.style.color = ""; msg.textContent = "You are the blue dot (±" + acc + " m). Tap the map to move your pin." + weak; }
+      });
+      geo.on("error", function () {
+        msg.style.color = "var(--warn)";
+        msg.textContent = "Couldn't get your location. Tap the map to place your pin instead.";
+      });
       marker = new maplibregl.Marker({ draggable: true, color: "#0F766E" });
       marker.on("dragend", function () { var p = marker.getLngLat(); place(p.lng, p.lat, null); });
       msg.textContent = "Tap the map or a store to drop your pin.";
