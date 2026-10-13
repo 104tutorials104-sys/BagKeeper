@@ -43,6 +43,44 @@ def create():
     return jsonify(_public(svc.get_order(oid))), 201
 
 
+# ---- live runner location ----
+@bp.post("/orders/<int:order_id>/runner-location")
+@login_required("runner", "admin")
+def runner_location_post(order_id):
+    o = svc.get_order(order_id)
+    if o is None:
+        return jsonify(error="not found"), 404
+    if o["runner_id"] != g.user["id"]:
+        return jsonify(error="not your job", share=False), 403
+    if o["status"] not in svc.SHARE_STATUSES:
+        return jsonify(error="not tracking right now", share=False), 409
+    d = request.get_json(silent=True) or {}
+    saved = svc.save_runner_position(order_id, g.user["id"], d.get("lat"), d.get("lon"),
+                                     d.get("accuracy"), d.get("heading"))
+    return jsonify(ok=True, share=True, saved=saved)
+
+
+@bp.delete("/orders/<int:order_id>/runner-location")
+@login_required("runner", "admin")
+def runner_location_stop(order_id):
+    o = svc.get_order(order_id)
+    if o is None or o["runner_id"] != g.user["id"]:
+        return jsonify(error="not your job"), 403
+    svc.clear_runner_position(order_id)
+    return jsonify(ok=True)
+
+
+@bp.get("/orders/<int:order_id>/runner")
+@login_required("customer", "admin")
+def runner_where(order_id):
+    o = svc.get_order(order_id)
+    if o is None or (g.user["role"] == "customer" and o["customer_id"] != g.user["id"]):
+        return jsonify(error="not found"), 404
+    resp = jsonify(svc.runner_tracking(o))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 @bp.get("/malls/<int:mall_id>/map")
 def mall_map(mall_id):
     data = svc.map_data(mall_id)

@@ -128,6 +128,7 @@ def order_map(order_id):
     if not _can_see_pins(o):
         flash("Take the job first to see the exact pin.", "error")
         return redirect(url_for("web.order", order_id=order_id))
+    # NOTE: the runner who took the job passes _can_see_pins, so they get the pins too
     pins = []
     if o["pickup_lat"] is not None:
         pins.append({"kind": "Pickup", "color": "#0F766E", "lat": o["pickup_lat"],
@@ -137,10 +138,12 @@ def order_map(order_id):
         pins.append({"kind": "Delivery", "color": "#D97706", "lat": o["dropoff_lat"],
                      "lon": o["dropoff_lon"], "acc": o["dropoff_acc"], "src": o["dropoff_src"],
                      "label": f"Delivery: {o['dropoff_spot']}"})
-    if not pins:
+    # the shopper (and admin) can also watch the runner live while a runner is on the way
+    tracking = g.user["role"] in ("customer", "admin") and o["status"] in svc.SHARE_STATUSES
+    if not pins and not tracking:
         flash("This order has no map pin - see the written place and details.", "error")
         return redirect(url_for("web.order", order_id=order_id))
-    return render_template("order_map.html", o=o, pins=pins)
+    return render_template("order_map.html", o=o, pins=pins, tracking=tracking)
 
 
 @bp.post("/order/<int:order_id>/cancel")

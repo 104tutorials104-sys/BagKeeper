@@ -4,7 +4,7 @@
 <div class="row"><h1>{{ o.code }} on the map</h1>
   <a href="{{ url_for('web.order', order_id=o.id) }}">Back</a></div>
 
-<div id="omap" data-mall="{{ o.mall_id }}" data-pins='{{ pins|tojson|forceescape }}'
+<div id="omap" data-mall="{{ o.mall_id }}" data-order="{{ o.id }}" data-track="{{ 1 if tracking else 0 }}" data-pins='{{ pins|tojson|forceescape }}'
      style="height:60vh;min-height:340px;border-radius:14px;border:1px solid var(--line);overflow:hidden;background:var(--card)"></div>
 <p class="muted" id="omap-msg" style="margin:8px 0 0">Loading the map...</p>
 
@@ -19,6 +19,7 @@
 </div>
 {% endfor %}
 <p class="muted">Tap a pin for its label. The blue dot is you; use the target button on the map to show it.
+{% if tracking %}The purple dot is your runner, updated every few seconds while they share their location. Indoors it can be off by a lot.{% endif %}
 Stores shown are from OpenStreetMap, so a few may be missing - the written place above is the source of truth.</p>
 
 <script src="{{ url_for('static', filename='mappick.js') }}"></script>

@@ -43,6 +43,23 @@
   {% if o.seal_ok == 1 %}<p class="badge ok">Seal intact at delivery</p>{% endif %}
 </div>
 
+{% if not staff and o.status in ('assigned','out_for_delivery') and o.runner %}
+<a class="card" href="{{ url_for('web.order_map', order_id=o.id) }}" style="border-color:var(--brand)">
+  <div class="row"><b>{{ o.runner.split(' ')[0] }} {{ 'is on the way to you' if o.status == 'assigned' else 'is bringing your bags' }}</b>
+    <span class="badge">Track live</span></div>
+  <div class="muted">See where your runner is on the map.</div>
+</a>
+{% endif %}
+
+{% if g.user.role in ('runner','admin') and o.runner_id == g.user.id and o.status in ('assigned','out_for_delivery') %}
+<div class="card" id="share" data-order="{{ o.id }}">
+  <div class="row"><b>Let the customer see you</b></div>
+  <p class="muted" data-share-msg style="margin:6px 0">Not sharing. The customer can't see where you are. Sharing works only while this page stays open.</p>
+  <button type="button" class="btn" data-share-btn style="margin-top:8px">Share my live location</button>
+</div>
+<script src="{{ url_for('static', filename='share.js') }}"></script>
+{% endif %}
+
 {# ---------- customer actions ---------- #}
 {% if not staff %}
   {% if o.status in ('requested','assigned') %}

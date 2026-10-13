@@ -23,6 +23,12 @@ class RuleError(Exception):
 # ---------- users ----------
 UNCLAIMED_MINUTES = 5
 
+# ---- live runner tracking ----
+SHARE_STATUSES = ("assigned", "out_for_delivery")   # runner heading to pickup / bringing bags
+POSITION_STALE_S = 45        # older than this = "paused"
+POSITION_MIN_GAP_S = 2       # ignore updates faster than this
+MAX_TRACK_ACCURACY_M = 500
+
 
 def create_user(name, phone, password, role="customer", mall_id=None):
     name, phone = name.strip(), "".join(c for c in phone if c.isdigit() or c == "+")
@@ -78,6 +84,7 @@ def reassign(order_id, admin_id, runner_id):
     # keep the status as is: a requested/return_requested job becomes assigned/out_for_delivery
     # only when the runner acts; reassigning just changes who is responsible.
     new_status = {"requested": "assigned"}.get(o["status"], o["status"])
+    get_db().execute("DELETE FROM runner_positions WHERE order_id=?", (order_id,))
     _set(order_id, runner_id=runner_id, status=new_status)
     log(order_id, admin_id, "reassigned", f"to {r['name']}")
     get_db().commit()
@@ -100,6 +107,9 @@ def log(order_id, actor_id, event, detail=None):
 
 
 def _set(order_id, **fields):
+    # live tracking only exists while the runner is heading to / bringing the bags
+    if fields.get("status") and fields["status"] not in SHARE_STATUSES:
+        get_db().execute("DELETE FROM runner_positions WHERE order_id=?", (order_id,))
     cols = ", ".join(f"{k}=?" for k in fields)
     get_db().execute(
         f"UPDATE orders SET {cols}, updated_at=CURRENT_TIMESTAMP WHERE id=?",
@@ -444,6 +454,63 @@ def request_return(order_id, customer_id, zone_id, details="", lat=None, lon=Non
     where = dropoff_spot + _pin_note(dacc, dsrc)
     log(order_id, customer_id, "return_requested", where)
     get_db().commit()
+
+
+# ---------- live runner position ----------
+def runner_may_share(order, user_id):
+    return (order is not None and order["runner_id"] == user_id
+            and order["status"] in SHARE_STATUSES)
+
+
+def save_runner_position(order_id, runner_id, lat, lon, acc=None, heading=None):
+    """Store the runner's latest position. Returns False when skipped (too frequent)."""
+    import time
+    try:
+        lat, lon = float(lat), float(lon)
+        acc = float(acc) if acc not in (None, "") else None
+        heading = float(heading) if heading not in (None, "") else None
+    except (TypeError, ValueError):
+        raise RuleError("Bad location.")
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180) or (lat == 0 and lon == 0):
+        raise RuleError("Bad location.")
+    if acc is not None and (acc < 0 or acc > MAX_TRACK_ACCURACY_M):
+        raise RuleError("Location too inaccurate right now.")
+    if heading is not None and not (0 <= heading <= 360):
+        heading = None
+    now = time.time()
+    db = get_db()
+    row = db.execute("SELECT ts, order_id FROM runner_positions WHERE runner_id=?",
+                     (runner_id,)).fetchone()
+    if row and row["order_id"] == order_id and now - row["ts"] < POSITION_MIN_GAP_S:
+        return False
+    db.execute("INSERT OR REPLACE INTO runner_positions (runner_id, order_id, lat, lon, acc, heading, ts)"
+               " VALUES (?,?,?,?,?,?,?)", (runner_id, order_id, lat, lon, acc, heading, now))
+    db.commit()
+    return True
+
+
+def clear_runner_position(order_id):
+    get_db().execute("DELETE FROM runner_positions WHERE order_id=?", (order_id,))
+    get_db().commit()
+
+
+def runner_tracking(order):
+    """What the customer's map may show about the runner right now."""
+    import time
+    can_track = order["status"] in SHARE_STATUSES and order["runner_id"] is not None
+    out = {"status": order["status"], "can_track": can_track,
+           "runner": (order["runner"] or "").split(" ")[0] or None,
+           "sharing": False, "age_s": None}
+    if not can_track:
+        return out
+    row = get_db().execute("SELECT * FROM runner_positions WHERE runner_id=? AND order_id=?",
+                           (order["runner_id"], order["id"])).fetchone()
+    if row is None:
+        return out
+    age = max(0, time.time() - row["ts"])
+    out.update(age_s=round(age), lat=row["lat"], lon=row["lon"], acc=row["acc"],
+               heading=row["heading"], sharing=age <= POSITION_STALE_S)
+    return out
 
 
 # ---------- admin: places ----------
