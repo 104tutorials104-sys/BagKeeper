@@ -18,14 +18,14 @@
   {% if show_pins and o.pickup_lat is not none %}
     <div class="row"><span class="muted">Pickup pin</span>
       <span><span class="badge {{ 'ok' if o.pickup_src == 'map' or o.pickup_acc <= 30 else 'warn' }}">{{ 'placed on map' if o.pickup_src == 'map' else '±' ~ (o.pickup_acc|round|int) ~ ' m GPS' }}</span>
-      <a href="https://www.google.com/maps?q={{ o.pickup_lat }},{{ o.pickup_lon }}" target="_blank" rel="noopener">Open in Maps</a></span></div>
+      <a href="{{ url_for('web.order_map', order_id=o.id) }}">View on map</a></span></div>
     {% if pickup_in_mall == false %}<p class="badge warn">This pin looks outside the mall - confirm with the customer.</p>{% endif %}
   {% endif %}
   {% if o.dropoff_spot %}<div class="row"><span class="muted">Deliver to</span><b>{{ o.dropoff_spot }}</b></div>{% endif %}
   {% if show_pins and o.dropoff_lat is not none %}
     <div class="row"><span class="muted">Delivery pin</span>
       <span><span class="badge {{ 'ok' if o.dropoff_src == 'map' or o.dropoff_acc <= 30 else 'warn' }}">{{ 'placed on map' if o.dropoff_src == 'map' else '±' ~ (o.dropoff_acc|round|int) ~ ' m GPS' }}</span>
-      <a href="https://www.google.com/maps?q={{ o.dropoff_lat }},{{ o.dropoff_lon }}" target="_blank" rel="noopener">Open in Maps</a></span></div>
+      <a href="{{ url_for('web.order_map', order_id=o.id) }}">View on map</a></span></div>
     {% if dropoff_in_mall == false %}<p class="badge warn">This pin looks outside the mall property - confirm with the customer.</p>{% endif %}
   {% endif %}
   {% if staff and not show_pins and (o.pickup_lat is not none or o.dropoff_lat is not none) %}

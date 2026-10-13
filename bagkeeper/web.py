@@ -106,9 +106,7 @@ def new_order():
 def order(order_id):
     o = _order_or_404(order_id)
     mall = svc.get_mall(o["mall_id"])
-    # precise GPS pins: the customer, admins, and the runner who took the job
-    show_pins = (g.user["role"] in ("customer", "admin")
-                 or o["runner_id"] == g.user["id"])
+    show_pins = _can_see_pins(o)
     return render_template(
         "order.html", o=o, events=svc.order_events(order_id),
         photos=svc.order_photos(order_id), mall=mall, show_pins=show_pins,
@@ -116,6 +114,33 @@ def order(order_id):
         dropoff_in_mall=svc.pin_inside_mall(mall, o["dropoff_lat"], o["dropoff_lon"]),
         return_zones=svc.zones(o["mall_id"], ("parking", "entrance")),
         runners_here=svc.runners(o["mall_id"]) if g.user["role"] == "admin" else [])
+
+
+def _can_see_pins(o):
+    """Exact pins: the customer, admins, and the runner who took the job."""
+    return g.user["role"] in ("customer", "admin") or o["runner_id"] == g.user["id"]
+
+
+@bp.route("/order/<int:order_id>/map")
+@login_required()
+def order_map(order_id):
+    o = _order_or_404(order_id)
+    if not _can_see_pins(o):
+        flash("Take the job first to see the exact pin.", "error")
+        return redirect(url_for("web.order", order_id=order_id))
+    pins = []
+    if o["pickup_lat"] is not None:
+        pins.append({"kind": "Pickup", "color": "#0F766E", "lat": o["pickup_lat"],
+                     "lon": o["pickup_lon"], "acc": o["pickup_acc"], "src": o["pickup_src"],
+                     "label": f"Pickup: {o['pickup_spot']}"})
+    if o["dropoff_lat"] is not None:
+        pins.append({"kind": "Delivery", "color": "#D97706", "lat": o["dropoff_lat"],
+                     "lon": o["dropoff_lon"], "acc": o["dropoff_acc"], "src": o["dropoff_src"],
+                     "label": f"Delivery: {o['dropoff_spot']}"})
+    if not pins:
+        flash("This order has no map pin - see the written place and details.", "error")
+        return redirect(url_for("web.order", order_id=order_id))
+    return render_template("order_map.html", o=o, pins=pins)
 
 
 @bp.post("/order/<int:order_id>/cancel")

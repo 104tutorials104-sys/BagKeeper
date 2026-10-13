@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Map - {{ o.code }} - BagKeeper{% endblock %}
+{% block content %}
+<div class="row"><h1>{{ o.code }} on the map</h1>
+  <a href="{{ url_for('web.order', order_id=o.id) }}">Back</a></div>
+
+<div id="omap" data-mall="{{ o.mall_id }}" data-pins='{{ pins|tojson|forceescape }}'
+     style="height:60vh;min-height:340px;border-radius:14px;border:1px solid var(--line);overflow:hidden;background:var(--card)"></div>
+<p class="muted" id="omap-msg" style="margin:8px 0 0">Loading the map...</p>
+
+{% for p in pins %}
+<div class="card" style="margin-top:12px">
+  <div class="row">
+    <b><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:{{ p.color }};margin-right:6px"></span>{{ p.kind }}</b>
+    <span class="badge {{ 'ok' if p.src == 'map' or p.acc <= 30 else 'warn' }}">{{ 'placed on map' if p.src == 'map' else '±' ~ (p.acc|round|int) ~ ' m GPS' }}</span>
+  </div>
+  <p style="margin:6px 0">{{ p.label.split(': ', 1)[1] }}</p>
+  <a href="https://www.google.com/maps/search/?api=1&query={{ p.lat }},{{ p.lon }}" target="_blank" rel="noopener">Directions in Google Maps</a>
+</div>
+{% endfor %}
+<p class="muted">Tap a pin for its label. The blue dot is you; use the target button on the map to show it.
+Stores shown are from OpenStreetMap, so a few may be missing - the written place above is the source of truth.</p>
+
+<script src="{{ url_for('static', filename='mappick.js') }}"></script>
+<script src="{{ url_for('static', filename='ordermap.js') }}"></script>
+{% endblock %}
