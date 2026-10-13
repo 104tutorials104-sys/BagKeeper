@@ -23,6 +23,11 @@
     return loading;
   }
 
+  // shared with the admin map page (adminmap.js)
+  window.BK = window.BK || {};
+  window.BK.loadMapLib = loadLib;
+  window.BK.MAP_STYLE = STYLE;
+
   function json(url) {
     return fetch(url).then(function (r) { if (!r.ok) throw new Error(url); return r.json(); });
   }
@@ -75,7 +80,10 @@
         var zoneFeatures = data.zones.map(function (z) {
           return { type: "Feature", properties: { name: z.name, kind: "zone" },
                    geometry: { type: "Point", coordinates: [z.lon, z.lat] } };
-        });
+        }).concat((data.extra_places || []).map(function (p) {       // stores added by the admin
+          return { type: "Feature", properties: { name: p.name, kind: p.kind },
+                   geometry: { type: "Point", coordinates: [p.lon, p.lat] } };
+        }));
         map.addSource("places", { type: "geojson", data: { type: "FeatureCollection", features: zoneFeatures } });
         map.addLayer({ id: "places-dot", type: "circle", source: "places", paint: {
           "circle-radius": ["case", ["==", ["get", "kind"], "zone"], 8, 5],

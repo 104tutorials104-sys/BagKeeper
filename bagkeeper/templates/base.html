@@ -15,7 +15,7 @@
     {% if g.user %}
       {% if g.user.role == 'customer' %}<a href="{{ url_for('web.dashboard') }}">My bags</a>{% endif %}
       {% if g.user.role in ('runner','admin') %}<a href="{{ url_for('web.runner') }}">Runner</a>{% endif %}
-      {% if g.user.role == 'admin' %}<a href="{{ url_for('web.admin') }}">Admin</a>{% endif %}
+      {% if g.user.role == 'admin' %}<a href="{{ url_for('web.admin') }}">Admin</a><a href="{{ url_for('web.admin_map') }}">Map</a>{% endif %}
       <form method="post" action="{{ url_for('web.logout') }}"><button class="link">Log out</button></form>
     {% else %}
       <a href="{{ url_for('web.login') }}">Log in</a>

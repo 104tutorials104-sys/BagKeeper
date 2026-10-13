@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Map - BagKeeper{% endblock %}
+{% block content %}
+<h1>Mark stores on the map</h1>
+
+{% if malls|length > 1 %}
+<form method="get" class="card" style="padding:12px 16px">
+  <label for="mall" style="margin-top:0">Mall</label>
+  <select id="mall" name="mall" onchange="this.form.submit()">
+    {% for m in malls %}<option value="{{ m.id }}" {{ 'selected' if m.id == mall.id }}>{{ m.name }}</option>{% endfor %}
+  </select>
+</form>
+{% endif %}
+
+<p class="muted">Teal dots are stores already on the map. Amber dots are ones you added. Tap an empty spot to place a pin
+(or drag it), name it below, and save. Shoppers see it straight away when they pick a spot.</p>
+
+<div id="amap" data-mall="{{ mall.id }}" data-lat="{{ focus_lat or '' }}" data-lon="{{ focus_lon or '' }}"
+     style="height:55vh;min-height:320px;border-radius:14px;border:1px solid var(--line);overflow:hidden;background:var(--card)"></div>
+<p class="muted" id="amap-msg" style="margin:8px 0 0">Loading the map...</p>
+
+<form class="card" method="post" action="{{ url_for('web.admin_map_add') }}" style="margin-top:12px">
+  <input type="hidden" name="mall_id" value="{{ mall.id }}">
+  <input type="hidden" name="lat" id="p-lat"><input type="hidden" name="lon" id="p-lon">
+  <label for="p-name" style="margin-top:0">Store name</label>
+  <input id="p-name" name="name" placeholder="e.g. Zara" maxlength="60" required>
+  <label for="p-kind">Type</label>
+  <select id="p-kind" name="kind">
+    {% for k in kinds %}<option value="{{ k }}">{{ {'shop':'Shop','food':'Food / drink','service':'Service (bank, pharmacy...)','other':'Other'}[k] }}</option>{% endfor %}
+  </select>
+  <button class="btn" id="p-save" disabled>Add to the map</button>
+</form>
+
+<h2>Places you added ({{ added|length }})</h2>
+{% for p in added %}
+  <form method="post" action="{{ url_for('web.admin_map_toggle', place_id=p.id) }}" class="row" style="margin:6px 0">
+    <span{% if not p.active %} class="muted" style="text-decoration:line-through"{% endif %}>{{ p.name }} <span class="badge">{{ p.kind }}</span></span>
+    <button class="link">{{ 'Hide' if p.active else 'Show' }}</button>
+  </form>
+{% else %}<p class="muted">Nothing added yet.</p>{% endfor %}
+
+<h2>Keep them permanently</h2>
+<p class="muted">On free hosting the database resets when the site sleeps, so hand-added places can disappear. Download them, and
+we save the file into the code so they are always there.</p>
+<a class="btn ghost" href="{{ url_for('web.admin_map_export', mall_id=mall.id) }}">Download all places (GeoJSON)</a>
+
+<script src="{{ url_for('static', filename='mappick.js') }}"></script>
+<script src="{{ url_for('static', filename='adminmap.js') }}"></script>
+{% endblock %}

@@ -240,6 +240,64 @@ def reassign(order_id):
     return _act(order_id, lambda: svc.reassign(order_id, g.user["id"], rid))
 
 
+@bp.route("/admin/map")
+@login_required("admin")
+def admin_map():
+    malls = svc.malls()
+    if not malls:
+        flash("Add a mall first.", "error")
+        return redirect(url_for("web.admin"))
+    try:
+        mall_id = int(request.args.get("mall", malls[0]["id"]))
+    except ValueError:
+        abort(400)
+    mall = svc.get_mall(mall_id)
+    if mall is None:
+        abort(404)
+    return render_template("admin_map.html", malls=malls, mall=mall,
+                           added=svc.map_places(mall_id, include_inactive=True),
+                           kinds=svc.PLACE_KINDS,
+                           focus_lat=request.args.get("lat"), focus_lon=request.args.get("lon"))
+
+
+@bp.post("/admin/map/places")
+@login_required("admin")
+def admin_map_add():
+    f = request.form
+    try:
+        mall_id = int(f["mall_id"])
+        svc.add_map_place(mall_id, g.user["id"], f.get("name"), f.get("kind"),
+                          f.get("lat"), f.get("lon"))
+    except (svc.RuleError, ValueError, KeyError) as e:
+        flash(str(e) or "Check the form.", "error")
+        return redirect(url_for("web.admin_map", mall=f.get("mall_id")))
+    flash(f"{f.get('name', '').strip()} added to the map.", "ok")
+    return redirect(url_for("web.admin_map", mall=mall_id, lat=f.get("lat"), lon=f.get("lon")))
+
+
+@bp.post("/admin/map/places/<int:place_id>/toggle")
+@login_required("admin")
+def admin_map_toggle(place_id):
+    row = get_db().execute("SELECT mall_id FROM map_places WHERE id=?", (place_id,)).fetchone()
+    if row is None:
+        abort(404)
+    svc.toggle_map_place(place_id)
+    return redirect(url_for("web.admin_map", mall=row["mall_id"]))
+
+
+@bp.get("/admin/map/export/<int:mall_id>.geojson")
+@login_required("admin")
+def admin_map_export(mall_id):
+    import json
+    from flask import Response
+    mall = svc.get_mall(mall_id)
+    if mall is None:
+        abort(404)
+    body = json.dumps(svc.export_places_geojson(mall_id), separators=(",", ":"))
+    return Response(body, mimetype="application/geo+json", headers={
+        "Content-Disposition": f"attachment; filename={svc._slug(mall['name'])}.geojson"})
+
+
 @bp.post("/admin/zones")
 @login_required("admin")
 def add_zone():

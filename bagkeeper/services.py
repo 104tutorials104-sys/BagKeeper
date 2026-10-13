@@ -172,20 +172,84 @@ def get_mall(mall_id):
     return get_db().execute("SELECT * FROM malls WHERE id=?", (mall_id,)).fetchone()
 
 
+PLACE_KINDS = ("shop", "food", "service", "other")
+
+
+def _slug(name):
+    import re
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def map_places(mall_id, include_inactive=False):
+    sql = "SELECT * FROM map_places WHERE mall_id=?"
+    if not include_inactive:
+        sql += " AND active=1"
+    return get_db().execute(sql + " ORDER BY name", (mall_id,)).fetchall()
+
+
+def add_map_place(mall_id, admin_id, name, kind, lat, lon):
+    mall = get_mall(mall_id)
+    name = (name or "").strip()
+    if mall is None or not (2 <= len(name) <= 60):
+        raise RuleError("Enter the store name (2-60 characters).")
+    if kind not in PLACE_KINDS:
+        raise RuleError("Choose a type.")
+    plat, plon, _ = parse_pin(lat, lon, 0)
+    if plat is None:
+        raise RuleError("Tap the map to choose where it is.")
+    if pin_inside_mall(mall, plat, plon) is False:
+        raise RuleError("That spot is outside the mall area. Move the pin, or enlarge the radius in Places and map settings.")
+    for p in map_places(mall_id):
+        if p["name"].lower() == name.lower() and distance_m(plat, plon, p["lat"], p["lon"]) < 40:
+            raise RuleError(f"{p['name']} is already on the map there.")
+    get_db().execute(
+        "INSERT INTO map_places (mall_id, name, kind, lat, lon, created_by) VALUES (?,?,?,?,?,?)",
+        (mall_id, name, kind, plat, plon, admin_id))
+    get_db().commit()
+
+
+def toggle_map_place(place_id):
+    get_db().execute("UPDATE map_places SET active = 1 - active WHERE id=?", (place_id,))
+    get_db().commit()
+
+
+def export_places_geojson(mall_id):
+    """Static file points + hand-added places, as one GeoJSON a developer can commit to
+    bagkeeper/static/data/<mall>.geojson so they survive hosting resets."""
+    import json
+    from pathlib import Path
+    mall = get_mall(mall_id)
+    path = Path(current_app.static_folder) / "data" / f"{_slug(mall['name'])}.geojson"
+    try:
+        base = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        base = {"type": "FeatureCollection", "features": []}
+    feats = list(base.get("features", []))
+    for p in map_places(mall_id):
+        feats.append({"type": "Feature",
+                      "properties": {"name": p["name"], "kind": p["kind"], "osm": "manual"},
+                      "geometry": {"type": "Point",
+                                   "coordinates": [round(p["lon"], 6), round(p["lat"], 6)]}})
+    return {"type": "FeatureCollection",
+            "attribution": base.get("attribution", "Data (c) OpenStreetMap contributors, ODbL"),
+            "features": feats}
+
+
 def map_data(mall_id):
     """Everything the map picker needs for one mall."""
-    import re
     from pathlib import Path
     mall = get_mall(mall_id)
     if mall is None:
         return None
-    slug = re.sub(r"[^a-z0-9]+", "-", mall["name"].lower()).strip("-")
+    slug = _slug(mall["name"])
     places = Path(current_app.static_folder) / "data" / f"{slug}.geojson"
     return {
         "name": mall["name"],
         "center": [mall["lon"], mall["lat"]] if mall["lat"] is not None else None,
         "radius_m": mall["radius_m"],
         "places_url": f"/static/data/{slug}.geojson" if places.exists() else None,
+        "extra_places": [{"id": p["id"], "name": p["name"], "kind": p["kind"],
+                          "lat": p["lat"], "lon": p["lon"]} for p in map_places(mall_id)],
         "zones": [{"id": z["id"], "name": z["name"], "kind": z["kind"],
                    "lat": z["lat"], "lon": z["lon"]}
                   for z in zones(mall_id) if z["lat"] is not None],
@@ -272,11 +336,13 @@ def _nearest_place(mall, lat, lon, within_m=150):
         except (OSError, ValueError, KeyError):
             _places_cache[slug] = []
     best, best_d = None, within_m
-    for f in _places_cache[slug]:
-        lon2, lat2 = f["geometry"]["coordinates"]
+    candidates = [(f["properties"]["name"], f["geometry"]["coordinates"][1],
+                   f["geometry"]["coordinates"][0]) for f in _places_cache[slug]]
+    candidates += [(p["name"], p["lat"], p["lon"]) for p in map_places(mall["id"])]
+    for name, lat2, lon2 in candidates:
         d = distance_m(lat, lon, lat2, lon2)
         if d < best_d:
-            best, best_d = f["properties"]["name"], d
+            best, best_d = name, d
     return best
 
 

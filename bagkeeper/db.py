@@ -22,6 +22,17 @@ CREATE TABLE IF NOT EXISTS malls (
     radius_m INTEGER,
     levels TEXT NOT NULL DEFAULT 'Ground'    -- comma-separated; one level = no level question
 );
+CREATE TABLE IF NOT EXISTS map_places (      -- stores etc. added by hand on the admin map
+    id INTEGER PRIMARY KEY,
+    mall_id INTEGER NOT NULL REFERENCES malls(id),
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'shop',       -- shop | food | service | other
+    lat REAL NOT NULL,
+    lon REAL NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS zones (           -- named places shoppers can pick
     id INTEGER PRIMARY KEY,
     mall_id INTEGER NOT NULL REFERENCES malls(id),
