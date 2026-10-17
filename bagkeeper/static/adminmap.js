@@ -44,7 +44,11 @@
         return { type: "Feature", properties: { name: p.name, extra: 1 },
                  geometry: { type: "Point", coordinates: [p.lon, p.lat] } };
       });
-      map.addSource("base", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      var live = (data.live_places || []).map(function (p) {          // refreshed from OpenStreetMap
+        return { type: "Feature", properties: { name: p.name },
+                 geometry: { type: "Point", coordinates: [p.lon, p.lat] } };
+      });
+      map.addSource("base", { type: "geojson", data: { type: "FeatureCollection", features: live } });
       map.addSource("extra", { type: "geojson", data: { type: "FeatureCollection", features: extra } });
       map.addLayer({ id: "base-dot", type: "circle", source: "base", paint: {
         "circle-radius": 5, "circle-color": "#0F766E", "circle-stroke-width": 1.5, "circle-stroke-color": "#fff" } });
@@ -58,7 +62,7 @@
       });
       if (data.places_url) {
         fetch(data.places_url).then(function (r) { return r.json(); }).then(function (gj) {
-          map.getSource("base").setData(gj);
+          map.getSource("base").setData({ type: "FeatureCollection", features: live.concat(gj.features) });
         }).catch(function () {});
       }
       map.on("click", function (e) {

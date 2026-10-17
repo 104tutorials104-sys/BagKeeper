@@ -226,6 +226,150 @@ def toggle_map_place(place_id):
     get_db().commit()
 
 
+# ---------- stores from OpenStreetMap (auto-refreshed) ----------
+OSM_TTL_S = 7 * 24 * 3600        # refresh at most weekly
+OSM_RETRY_S = 3600               # after a failed try, wait an hour
+_refresh_running = set()
+_refresh_lock = None
+OVERPASS_ENDPOINTS = (
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+)
+
+
+def _kind_for(tags):
+    if tags.get("shop"):
+        return "shop"
+    amenity = tags.get("amenity", "")
+    if amenity in ("cinema", "bank", "pharmacy"):
+        return "service" if amenity != "cinema" else "other"
+    return "food"
+
+
+def _overpass_fetch(lat, lon, radius_m):
+    """Named shops and eateries around a point, from OpenStreetMap (Overpass API)."""
+    import json
+    import urllib.parse
+    import urllib.request
+    q = ("[out:json][timeout:60];("
+         f'nwr["shop"]["name"](around:{radius_m},{lat},{lon});'
+         f'nwr["amenity"~"^(restaurant|cafe|fast_food|food_court|ice_cream|cinema|bank|pharmacy)$"]["name"]'
+         f"(around:{radius_m},{lat},{lon});"
+         ");out tags center 4000;")
+    body = urllib.parse.urlencode({"data": q}).encode()
+    data, last_error = None, None
+    for endpoint in OVERPASS_ENDPOINTS:            # public servers are often busy: try the next one
+        req = urllib.request.Request(endpoint, data=body, headers={
+            "User-Agent": "BagKeeper/0.1 (mall bag-holding service)", "Accept": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.load(resp)
+            break
+        except Exception as e:                      # 502/429/timeouts, etc.
+            last_error = e
+    if data is None:
+        raise last_error
+    out = []
+    for e in data.get("elements", []):
+        tags = e.get("tags", {})
+        name = (tags.get("name") or "").strip()
+        pt = e if e.get("type") == "node" else (e.get("center") or {})
+        if not name or pt.get("lat") is None or pt.get("lon") is None:
+            continue
+        out.append({"osm": f"{e['type']}/{e['id']}", "name": name[:80], "kind": _kind_for(tags),
+                    "lat": pt["lat"], "lon": pt["lon"]})
+    return out
+
+
+def osm_status(mall_id):
+    row = get_db().execute("SELECT * FROM osm_refresh WHERE mall_id=?", (mall_id,)).fetchone()
+    n = get_db().execute("SELECT COUNT(*) FROM osm_places WHERE mall_id=?", (mall_id,)).fetchone()[0]
+    return {"last_ok": row["last_ok"] if row else None, "count": n}
+
+
+def refresh_osm_places(mall_id, fetch=None):
+    """Pull the mall's stores from OpenStreetMap. Returns {"total", "new", "removed"}.
+    An empty or failed answer never wipes what we already have."""
+    import time
+    mall = get_mall(mall_id)
+    if mall is None or mall["lat"] is None:
+        raise RuleError("Set the mall's centre point first.")
+    fetch = fetch or _overpass_fetch
+    radius = min(mall["radius_m"] or 1100, 1500)
+    db, now = get_db(), time.time()
+    db.execute("INSERT INTO osm_refresh (mall_id, last_try) VALUES (?,?) "
+               "ON CONFLICT(mall_id) DO UPDATE SET last_try=excluded.last_try", (mall_id, now))
+    db.commit()
+    try:
+        rows = fetch(mall["lat"], mall["lon"], radius)
+    except Exception:
+        raise RuleError("OpenStreetMap is busy right now. Try again in a few minutes.")
+    if not rows:
+        raise RuleError("OpenStreetMap returned nothing, so nothing was changed.")
+    before = {r[0] for r in db.execute("SELECT osm_id FROM osm_places WHERE mall_id=?", (mall_id,))}
+    for r in rows:
+        db.execute("INSERT OR REPLACE INTO osm_places (mall_id, osm_id, name, kind, lat, lon, seen_at)"
+                   " VALUES (?,?,?,?,?,?,?)", (mall_id, r["osm"], r["name"], r["kind"], r["lat"], r["lon"], now))
+    db.execute("DELETE FROM osm_places WHERE mall_id=? AND seen_at < ?", (mall_id, now))
+    ids = {r["osm"] for r in rows}
+    db.execute("UPDATE osm_refresh SET last_ok=?, count=? WHERE mall_id=?", (now, len(ids), mall_id))
+    db.commit()
+    return {"total": len(ids), "new": len(ids - before), "removed": len(before - ids)}
+
+
+def osm_refresh_due(mall_id):
+    import time
+    row = get_db().execute("SELECT * FROM osm_refresh WHERE mall_id=?", (mall_id,)).fetchone()
+    now = time.time()
+    if row is None:
+        return True
+    if row["last_try"] and now - row["last_try"] < OSM_RETRY_S:
+        return False
+    return not row["last_ok"] or now - row["last_ok"] > OSM_TTL_S
+
+
+def maybe_refresh_async(mall_id):
+    """Called when the map is opened: if the weekly refresh is due, do it in the background
+    so nobody waits. Set BAGKEEPER_OSM_REFRESH=0 to turn this off."""
+    import os
+    import threading
+    global _refresh_lock
+    if os.environ.get("BAGKEEPER_OSM_REFRESH") == "0" or not osm_refresh_due(mall_id):
+        return
+    if _refresh_lock is None:
+        _refresh_lock = threading.Lock()
+    with _refresh_lock:
+        if mall_id in _refresh_running:
+            return
+        _refresh_running.add(mall_id)
+    app = current_app._get_current_object()
+
+    def work():
+        try:
+            with app.app_context():
+                refresh_osm_places(mall_id)
+        except Exception:
+            pass
+        finally:
+            with _refresh_lock:
+                _refresh_running.discard(mall_id)
+
+    threading.Thread(target=work, daemon=True).start()
+
+
+def _static_osm_ids(mall):
+    return {f["properties"].get("osm") for f in _static_features(mall)}
+
+
+def live_places(mall_id):
+    """Refreshed OpenStreetMap stores that are not already in the committed file."""
+    mall = get_mall(mall_id)
+    skip = _static_osm_ids(mall)
+    rows = get_db().execute("SELECT * FROM osm_places WHERE mall_id=? ORDER BY name", (mall_id,)).fetchall()
+    return [r for r in rows if r["osm_id"] not in skip]
+
+
 def export_places_geojson(mall_id):
     """Static file points + hand-added places, as one GeoJSON a developer can commit to
     bagkeeper/static/data/<mall>.geojson so they survive hosting resets."""
@@ -238,6 +382,11 @@ def export_places_geojson(mall_id):
     except (OSError, ValueError):
         base = {"type": "FeatureCollection", "features": []}
     feats = list(base.get("features", []))
+    for p in live_places(mall_id):
+        feats.append({"type": "Feature",
+                      "properties": {"name": p["name"], "kind": p["kind"], "osm": p["osm_id"]},
+                      "geometry": {"type": "Point",
+                                   "coordinates": [round(p["lon"], 6), round(p["lat"], 6)]}})
     for p in map_places(mall_id):
         feats.append({"type": "Feature",
                       "properties": {"name": p["name"], "kind": p["kind"], "osm": "manual"},
@@ -263,6 +412,8 @@ def map_data(mall_id):
         "places_url": f"/static/data/{slug}.geojson" if places.exists() else None,
         "extra_places": [{"id": p["id"], "name": p["name"], "kind": p["kind"],
                           "lat": p["lat"], "lon": p["lon"]} for p in map_places(mall_id)],
+        "live_places": [{"name": p["name"], "kind": p["kind"], "lat": p["lat"], "lon": p["lon"]}
+                        for p in live_places(mall_id)],
         "zones": [{"id": z["id"], "name": z["name"], "kind": z["kind"],
                    "lat": z["lat"], "lon": z["lon"]}
                   for z in zones(mall_id) if z["lat"] is not None],
@@ -336,22 +487,28 @@ def pin_inside_mall(mall, lat, lon):
 _places_cache = {}
 
 
-def _nearest_place(mall, lat, lon, within_m=150):
-    """Name of the closest store/place in the mall's map file, or None."""
+def _static_features(mall):
+    """Features of the committed store file for this mall (cached; [] if there is none)."""
     import json
-    import re
     from pathlib import Path
-    slug = re.sub(r"[^a-z0-9]+", "-", mall["name"].lower()).strip("-")
+    slug = _slug(mall["name"])
     if slug not in _places_cache:
         path = Path(current_app.static_folder) / "data" / f"{slug}.geojson"
         try:
             _places_cache[slug] = json.loads(path.read_text(encoding="utf-8-sig"))["features"]
         except (OSError, ValueError, KeyError):
             _places_cache[slug] = []
+    return _places_cache[slug]
+
+
+def _nearest_place(mall, lat, lon, within_m=150):
+    """Name of the closest known store/place for this mall, or None."""
     best, best_d = None, within_m
     candidates = [(f["properties"]["name"], f["geometry"]["coordinates"][1],
-                   f["geometry"]["coordinates"][0]) for f in _places_cache[slug]]
+                   f["geometry"]["coordinates"][0]) for f in _static_features(mall)]
     candidates += [(p["name"], p["lat"], p["lon"]) for p in map_places(mall["id"])]
+    candidates += [(r["name"], r["lat"], r["lon"]) for r in get_db().execute(
+        "SELECT name, lat, lon FROM osm_places WHERE mall_id=?", (mall["id"],))]
     for name, lat2, lon2 in candidates:
         d = distance_m(lat, lon, lat2, lon2)
         if d < best_d:

@@ -41,6 +41,9 @@ The "Place a pin on the map" picker is built from open-source parts, no API keys
 
 Store points were extracted once from OpenStreetMap (named shops and restaurants within 1.1 km of Sawgrass Mills,
 166 features). Coverage is partial - Sawgrass has ~350 stores - so the admin can map more places.
+The site also refreshes stores from OpenStreetMap by itself (at most weekly, in the background, trying
+several public Overpass servers) and the admin Map page has an **Update now** button. New stores appear only if
+someone has mapped them in OpenStreetMap. Set `BAGKEEPER_OSM_REFRESH=0` to switch the automatic refresh off.
 Always keep the "© OpenStreetMap contributors" credit visible. For heavy production traffic, host the tiles
 yourself (Protomaps PMTiles) instead of relying on the public OpenFreeMap instance.
 

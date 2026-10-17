@@ -298,8 +298,22 @@ def admin_map():
         abort(404)
     return render_template("admin_map.html", malls=malls, mall=mall,
                            added=svc.map_places(mall_id, include_inactive=True),
-                           kinds=svc.PLACE_KINDS,
+                           kinds=svc.PLACE_KINDS, osm=svc.osm_status(mall_id),
                            focus_lat=request.args.get("lat"), focus_lon=request.args.get("lon"))
+
+
+@bp.post("/admin/map/refresh/<int:mall_id>")
+@login_required("admin")
+def admin_map_refresh(mall_id):
+    if svc.get_mall(mall_id) is None:
+        abort(404)
+    try:
+        r = svc.refresh_osm_places(mall_id)
+    except svc.RuleError as e:
+        flash(str(e), "error")
+    else:
+        flash(f"Updated from OpenStreetMap: {r['total']} places ({r['new']} new, {r['removed']} removed).", "ok")
+    return redirect(url_for("web.admin_map", mall=mall_id))
 
 
 @bp.post("/admin/map/places")

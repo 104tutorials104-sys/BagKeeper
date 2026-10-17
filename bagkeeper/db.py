@@ -33,6 +33,22 @@ CREATE TABLE IF NOT EXISTS map_places (      -- stores etc. added by hand on the
     created_by INTEGER REFERENCES users(id),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS osm_places (      -- stores pulled from OpenStreetMap, refreshed weekly
+    mall_id INTEGER NOT NULL REFERENCES malls(id),
+    osm_id TEXT NOT NULL,                    -- e.g. node/123456
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    lat REAL NOT NULL,
+    lon REAL NOT NULL,
+    seen_at REAL NOT NULL,
+    PRIMARY KEY (mall_id, osm_id)
+);
+CREATE TABLE IF NOT EXISTS osm_refresh (
+    mall_id INTEGER PRIMARY KEY REFERENCES malls(id),
+    last_try REAL,
+    last_ok REAL,
+    count INTEGER
+);
 CREATE TABLE IF NOT EXISTS runner_positions ( -- latest live position of a runner on one job
     runner_id INTEGER PRIMARY KEY REFERENCES users(id),
     order_id INTEGER NOT NULL REFERENCES orders(id),

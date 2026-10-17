@@ -96,7 +96,10 @@
         var zoneFeatures = data.zones.map(function (z) {
           return { type: "Feature", properties: { name: z.name, kind: "zone" },
                    geometry: { type: "Point", coordinates: [z.lon, z.lat] } };
-        }).concat((data.extra_places || []).map(function (p) {       // stores added by the admin
+        }).concat((data.live_places || []).map(function (p) {        // stores refreshed from OpenStreetMap
+          return { type: "Feature", properties: { name: p.name, kind: p.kind },
+                   geometry: { type: "Point", coordinates: [p.lon, p.lat] } };
+        })).concat((data.extra_places || []).map(function (p) {      // stores added by the admin
           return { type: "Feature", properties: { name: p.name, kind: p.kind },
                    geometry: { type: "Point", coordinates: [p.lon, p.lat] } };
         }));

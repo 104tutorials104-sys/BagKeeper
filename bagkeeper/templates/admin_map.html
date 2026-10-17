@@ -39,6 +39,15 @@
   </form>
 {% else %}<p class="muted">Nothing added yet.</p>{% endfor %}
 
+<h2>New stores from OpenStreetMap</h2>
+<p class="muted">The site checks OpenStreetMap by itself about once a week and picks up new or closed stores.
+{% if osm.last_ok %}Last update: <b>{{ osm.last_ok|int|timestamp }}</b> UTC, {{ osm.count }} places.{% else %}Not updated yet since the site last started.{% endif %}
+A store only appears there if someone has mapped it on <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">openstreetmap.org</a>
+(free to edit). Anything missing, add it with the form above.</p>
+<form method="post" action="{{ url_for('web.admin_map_refresh', mall_id=mall.id) }}">
+  <button class="btn ghost" onclick="this.textContent='Updating... (up to a minute)'">Update now</button>
+</form>
+
 <h2>Keep them permanently</h2>
 <p class="muted">On free hosting the database resets when the site sleeps, so hand-added places can disappear. Download them, and
 we save the file into the code so they are always there.</p>

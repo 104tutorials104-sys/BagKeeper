@@ -86,6 +86,7 @@ def mall_map(mall_id):
     data = svc.map_data(mall_id)
     if data is None:
         return jsonify(error="not found"), 404
+    svc.maybe_refresh_async(mall_id)      # weekly OpenStreetMap update, in the background
     return jsonify(data)
 
 

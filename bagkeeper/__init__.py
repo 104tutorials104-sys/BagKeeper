@@ -90,6 +90,11 @@ def create_app() -> Flask:
     def money(cents):
         return f"${(cents or 0) / 100:,.2f}"
 
+    @app.template_filter("timestamp")
+    def timestamp(ts):
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d %H:%M")
+
     @app.template_filter("label")
     def label(status):
         return status.replace("_", " ").title()

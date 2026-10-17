@@ -109,7 +109,9 @@
       // store labels
       var feats = (data.zones || []).map(function (z) {
         return { type: "Feature", properties: { name: z.name, kind: "zone" }, geometry: { type: "Point", coordinates: [z.lon, z.lat] } };
-      }).concat((data.extra_places || []).map(function (p) {
+      }).concat((data.live_places || []).map(function (p) {
+        return { type: "Feature", properties: { name: p.name, kind: p.kind }, geometry: { type: "Point", coordinates: [p.lon, p.lat] } };
+      })).concat((data.extra_places || []).map(function (p) {
         return { type: "Feature", properties: { name: p.name, kind: p.kind }, geometry: { type: "Point", coordinates: [p.lon, p.lat] } };
       }));
       map.addSource("places", { type: "geojson", data: { type: "FeatureCollection", features: feats } });
