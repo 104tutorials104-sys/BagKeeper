@@ -113,7 +113,7 @@
     <h2>Seal &amp; collect</h2>
     <form class="card" method="post" enctype="multipart/form-data" action="{{ url_for('web.pickup', order_id=o.id) }}">
       <label>Photo of bag contents (before sealing)</label>
-      <input type="file" name="bag_photo" accept="image/*" capture="environment" required>
+      <input type="file" name="bag_photo" accept="image/*" capture="environment" required data-camera data-stamp="{{ o.code }} bag contents">
       <label>Seal / tag number</label>
       <input name="seal_no" placeholder="Printed on the tamper tag" required>
       <label>Seal type</label>
@@ -122,7 +122,7 @@
         <option value="biometric">Biometric (thumb) seal</option>
       </select>
       <label>Photo of the sealed bag</label>
-      <input type="file" name="sealed_photo" accept="image/*" capture="environment">
+      <input type="file" name="sealed_photo" accept="image/*" capture="environment" data-camera data-stamp="{{ o.code }} sealed">
       <button class="btn">Confirm sealed &amp; collected</button>
     </form>
   {% elif o.status == 'picked_up' %}
@@ -141,7 +141,7 @@
       <label>Seal intact and number matches {{ o.seal_no }}?</label>
       <select name="seal_intact"><option value="yes">Yes - intact</option><option value="no">No - broken / mismatch</option></select>
       <label>Photo at handover (optional)</label>
-      <input type="file" name="photo" accept="image/*" capture="environment">
+      <input type="file" name="photo" accept="image/*" capture="environment" data-camera data-stamp="{{ o.code }} handover">
       <button class="btn">Complete delivery</button>
     </form>
   {% endif %}
@@ -160,4 +160,5 @@
 <ul class="tl">
   {% for e in events %}<li><b>{{ e.event|label }}</b> <span class="muted">{{ e.created_at }} UTC{% if e.actor %} &middot; {{ e.actor }}{% endif %}</span>{% if e.detail %}<br><span class="muted">{{ e.detail }}</span>{% endif %}</li>{% endfor %}
 </ul>
+<script src="{{ url_for('static', filename='camera.js') }}"></script>
 {% endblock %}

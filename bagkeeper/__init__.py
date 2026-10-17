@@ -67,7 +67,7 @@ def create_app() -> Flask:
         SECRET_KEY=_secret_key(instance),
         DATABASE=str(instance / "bagkeeper.sqlite"),
         UPLOAD_DIR=str(instance / "uploads"),
-        MAX_CONTENT_LENGTH=8 * 1024 * 1024,
+        MAX_CONTENT_LENGTH=25 * 1024 * 1024,     # in-app camera shots are ~0.5 MB; this covers file fallbacks
         BASE_FEE_CENTS=500,
         EXTRA_BAG_FEE_CENTS=200,
     )
