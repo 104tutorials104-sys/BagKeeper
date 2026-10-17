@@ -51,13 +51,13 @@
 </a>
 {% endif %}
 
-{% if g.user.role in ('runner','admin') and o.runner_id == g.user.id and o.status in ('assigned','out_for_delivery') %}
-<div class="card" id="share" data-order="{{ o.id }}">
-  <div class="row"><b>Let the customer see you</b></div>
-  <p class="muted" data-share-msg style="margin:6px 0">Not sharing. The customer can't see where you are. Sharing works only while this page stays open.</p>
-  <button type="button" class="btn" data-share-btn style="margin-top:8px">Share my live location</button>
+{% if g.user.role == 'admin' and o.runner and o.status in ('assigned','out_for_delivery') %}
+<div class="card row">
+  <span class="muted">Runner location</span>
+  {% if runner_loc.sharing %}<span class="badge ok">Live{% if runner_loc.acc is not none %} (±{{ runner_loc.acc|round|int }} m){% endif %}, {{ runner_loc.age_s }} s ago</span>
+  {% elif runner_loc.age_s is not none %}<span class="badge warn">Paused, last seen {{ runner_loc.age_s }} s ago</span>
+  {% else %}<span class="badge bad">Not sharing</span>{% endif %}
 </div>
-<script src="{{ url_for('static', filename='share.js') }}"></script>
 {% endif %}
 
 {# ---------- customer actions ---------- #}

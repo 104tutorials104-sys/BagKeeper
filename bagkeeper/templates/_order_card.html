@@ -2,7 +2,7 @@
 <a class="card" href="{{ url_for('web.order', order_id=o.id) }}">
   <div class="row">
     <b>{{ o.code }} &middot; {{ o.mall }}</b>
-    <span>{% if stuck_ids is defined and o.id in stuck_ids %}<span class="badge bad">Waiting 5+ min</span> {% endif %}<span class="badge {{ tone }}">{{ o.status|label }}</span></span>
+    <span>{% if o.status in ('assigned','out_for_delivery') and g.user.role == 'admin' and (o.pos_age is none or o.pos_age > 45) %}<span class="badge bad">No location</span> {% endif %}{% if stuck_ids is defined and o.id in stuck_ids %}<span class="badge bad">Waiting 5+ min</span> {% endif %}<span class="badge {{ tone }}">{{ o.status|label }}</span></span>
   </div>
   <div class="muted">{{ o.bag_count }} bag{{ 's' if o.bag_count != 1 }} &middot; {{ o.pickup_spot }}
     {% if o.customer is defined and g.user.role != 'customer' %}&middot; {{ o.customer }}{% endif %}</div>

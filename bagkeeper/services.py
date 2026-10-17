@@ -130,10 +130,13 @@ def get_order(order_id):
 
 def list_orders(where="1=1", args=()):
     return get_db().execute(
-        f"""SELECT o.*, m.name AS mall, c.name AS customer, r.name AS runner
+        f"""SELECT o.*, m.name AS mall, c.name AS customer, r.name AS runner,
+                   CASE WHEN rp.ts IS NULL THEN NULL
+                        ELSE CAST(strftime('%s','now') AS REAL) - rp.ts END AS pos_age
             FROM orders o JOIN malls m ON m.id=o.mall_id
             JOIN users c ON c.id=o.customer_id
             LEFT JOIN users r ON r.id=o.runner_id
+            LEFT JOIN runner_positions rp ON rp.runner_id=o.runner_id AND rp.order_id=o.id
             WHERE {where} ORDER BY o.updated_at DESC""",
         args,
     ).fetchall()

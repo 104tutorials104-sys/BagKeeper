@@ -9,6 +9,19 @@ bp = Blueprint("web", __name__)
 bp.before_app_request(load_user)
 
 
+@bp.app_context_processor
+def inject_share_orders():
+    """Runners with an active job share their location by default, on every page
+    (see static/share.js). Lists the order ids the page should report for."""
+    user = g.get("user")
+    if user is not None and user["role"] == "runner":
+        rows = get_db().execute(
+            "SELECT id FROM orders WHERE runner_id=? AND status IN ('assigned','out_for_delivery')",
+            (user["id"],)).fetchall()
+        return {"share_orders": [r["id"] for r in rows]}
+    return {"share_orders": []}
+
+
 def _home_for(user):
     return url_for({"customer": "web.dashboard", "runner": "web.runner",
                     "admin": "web.admin"}[user["role"]])
@@ -112,6 +125,7 @@ def order(order_id):
         photos=svc.order_photos(order_id), mall=mall, show_pins=show_pins,
         pickup_in_mall=svc.pin_inside_mall(mall, o["pickup_lat"], o["pickup_lon"]),
         dropoff_in_mall=svc.pin_inside_mall(mall, o["dropoff_lat"], o["dropoff_lon"]),
+        runner_loc=svc.runner_tracking(o) if g.user["role"] == "admin" else None,
         return_zones=svc.zones(o["mall_id"], ("parking", "entrance")),
         runners_here=svc.runners(o["mall_id"]) if g.user["role"] == "admin" else [])
 

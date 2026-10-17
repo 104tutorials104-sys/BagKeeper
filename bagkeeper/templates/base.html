@@ -22,6 +22,13 @@
     {% endif %}
   </nav>
 </div></header>
+{% if share_orders %}
+<div id="share" class="sharebar" data-orders="{{ share_orders|join(',') }}" role="status">
+  <span class="dot"></span><span data-share-msg>Starting your location...</span>
+  <button type="button" class="link" data-share-retry hidden>Try again</button>
+</div>
+<script src="{{ url_for('static', filename='share.js') }}"></script>
+{% endif %}
 <main>
   {% for cat, msg in get_flashed_messages(with_categories=true) %}
     <div class="flash {{ cat }}">{{ msg }}</div>
