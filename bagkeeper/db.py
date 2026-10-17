@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS osm_refresh (
     mall_id INTEGER PRIMARY KEY REFERENCES malls(id),
     last_try REAL,
     last_ok REAL,
-    count INTEGER
+    count INTEGER,
+    last_error TEXT
 );
 CREATE TABLE IF NOT EXISTS runner_positions ( -- latest live position of a runner on one job
     runner_id INTEGER PRIMARY KEY REFERENCES users(id),
@@ -129,6 +130,7 @@ def init_db():
                   ("on_duty", "INTEGER NOT NULL DEFAULT 0")],
         "malls": [("lat", "REAL"), ("lon", "REAL"), ("radius_m", "INTEGER"),
                   ("levels", "TEXT NOT NULL DEFAULT 'Ground'")],
+        "osm_refresh": [("last_error", "TEXT")],
         "orders": [("pickup_zone_id", "INTEGER REFERENCES zones(id)"),
                    ("pickup_level", "TEXT"), ("pickup_details", "TEXT"),
                    ("pickup_lat", "REAL"), ("pickup_lon", "REAL"), ("pickup_acc", "REAL"),

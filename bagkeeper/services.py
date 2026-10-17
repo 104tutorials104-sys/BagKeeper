@@ -285,7 +285,9 @@ def _overpass_fetch(lat, lon, radius_m):
 def osm_status(mall_id):
     row = get_db().execute("SELECT * FROM osm_refresh WHERE mall_id=?", (mall_id,)).fetchone()
     n = get_db().execute("SELECT COUNT(*) FROM osm_places WHERE mall_id=?", (mall_id,)).fetchone()[0]
-    return {"last_ok": row["last_ok"] if row else None, "count": n}
+    return {"last_ok": row["last_ok"] if row else None, "count": n,
+            "last_try": row["last_try"] if row else None,
+            "last_error": row["last_error"] if row else None}
 
 
 def refresh_osm_places(mall_id, fetch=None):
@@ -303,9 +305,15 @@ def refresh_osm_places(mall_id, fetch=None):
     db.commit()
     try:
         rows = fetch(mall["lat"], mall["lon"], radius)
-    except Exception:
+    except Exception as e:
+        why = f"{type(e).__name__}: {e}"[:300]
+        current_app.logger.warning("OpenStreetMap refresh failed for mall %s: %s", mall_id, why)
+        db.execute("UPDATE osm_refresh SET last_error=? WHERE mall_id=?", (why, mall_id))
+        db.commit()
         raise RuleError("OpenStreetMap is busy right now. Try again in a few minutes.")
     if not rows:
+        db.execute("UPDATE osm_refresh SET last_error=? WHERE mall_id=?", ("empty answer", mall_id))
+        db.commit()
         raise RuleError("OpenStreetMap returned nothing, so nothing was changed.")
     before = {r[0] for r in db.execute("SELECT osm_id FROM osm_places WHERE mall_id=?", (mall_id,))}
     for r in rows:
@@ -313,7 +321,8 @@ def refresh_osm_places(mall_id, fetch=None):
                    " VALUES (?,?,?,?,?,?,?)", (mall_id, r["osm"], r["name"], r["kind"], r["lat"], r["lon"], now))
     db.execute("DELETE FROM osm_places WHERE mall_id=? AND seen_at < ?", (mall_id, now))
     ids = {r["osm"] for r in rows}
-    db.execute("UPDATE osm_refresh SET last_ok=?, count=? WHERE mall_id=?", (now, len(ids), mall_id))
+    db.execute("UPDATE osm_refresh SET last_ok=?, count=?, last_error=NULL WHERE mall_id=?",
+               (now, len(ids), mall_id))
     db.commit()
     return {"total": len(ids), "new": len(ids - before), "removed": len(before - ids)}
 
@@ -349,8 +358,10 @@ def maybe_refresh_async(mall_id):
         try:
             with app.app_context():
                 refresh_osm_places(mall_id)
+        except RuleError:
+            pass                              # already logged and recorded in osm_refresh
         except Exception:
-            pass
+            app.logger.exception("background OpenStreetMap refresh crashed (mall %s)", mall_id)
         finally:
             with _refresh_lock:
                 _refresh_running.discard(mall_id)
