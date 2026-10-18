@@ -9,7 +9,24 @@
   <input id="phone" name="phone" type="tel" autocomplete="tel" required>
   <label for="password">Password</label>
   <input id="password" name="password" type="password" autocomplete="new-password" minlength="4" required>
+  <label for="password2">Confirm password</label>
+  <input id="password2" name="password2" type="password" autocomplete="new-password" minlength="4" required>
+  <p class="muted" id="pw-hint" style="margin:6px 0 0" role="status"></p>
   <button class="btn">Sign up</button>
 </form>
+<script>
+  // friendly live check; the server checks again
+  (function () {
+    var a = document.getElementById("password"), b = document.getElementById("password2"), h = document.getElementById("pw-hint");
+    function check() {
+      if (!b.value) { h.textContent = ""; b.setCustomValidity(""); return; }
+      var same = a.value === b.value;
+      h.textContent = same ? "Passwords match." : "Passwords don't match yet.";
+      h.style.color = same ? "var(--ok)" : "var(--warn)";
+      b.setCustomValidity(same ? "" : "Passwords don't match");
+    }
+    a.addEventListener("input", check); b.addEventListener("input", check);
+  })();
+</script>
 <p class="muted">Already registered? <a href="{{ url_for('web.login') }}">Log in</a></p>
 {% endblock %}

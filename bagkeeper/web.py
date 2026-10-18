@@ -54,6 +54,8 @@ def gps_test():
 def register():
     if request.method == "POST":
         try:
+            if request.form.get("password") != request.form.get("password2"):
+                raise svc.RuleError("The two passwords don't match. Please type them again.")
             uid = svc.create_user(request.form["name"], request.form["phone"],
                                   request.form["password"])
         except svc.RuleError as e:
