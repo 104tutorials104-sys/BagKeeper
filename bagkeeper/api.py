@@ -43,6 +43,41 @@ def create():
     return jsonify(_public(svc.get_order(oid))), 201
 
 
+# ---- who is who: rotating phrase + verification status ----
+@bp.get("/orders/<int:order_id>/verify/phrase")
+@login_required("customer", "runner")
+def verify_phrase(order_id):
+    o = svc.get_order(order_id)
+    if o is None:
+        return jsonify(error="not found"), 404
+    if not svc.can_see_phrase(o, g.user):
+        return jsonify(error="not available"), 403
+    phrase, left = svc.phrase_for(o)
+    resp = jsonify(phrase=phrase, seconds_left=left, runner=(o["runner"] or "").split(" ")[0],
+                   badge=o["runner_badge"])
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@bp.get("/orders/<int:order_id>/verify/status")
+@login_required("customer", "runner", "admin")
+def verify_status(order_id):
+    o = svc.get_order(order_id)
+    if o is None:
+        return jsonify(error="not found"), 404
+    me = g.user
+    allowed = (me["role"] == "admin"
+               or (me["role"] == "customer" and o["customer_id"] == me["id"])
+               or (me["role"] == "runner" and o["runner_id"] == me["id"]))
+    if not allowed:
+        return jsonify(error="not found"), 404
+    resp = jsonify(shopper_confirmed=bool(o["verified_at"]), pin_ok=bool(o["pin_ok_at"]),
+                   locked=bool(o["pin_locked"]), flagged=bool(o["safety_flag"]),
+                   delivery_confirmed=bool(o["delivery_verified_at"]), status=o["status"])
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 # ---- live runner location ----
 @bp.post("/orders/<int:order_id>/runner-location")
 @login_required("runner", "admin")

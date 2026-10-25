@@ -127,11 +127,20 @@ def init_db():
     # lightweight migration for databases created before runner/mall support
     wanted = {
         "users": [("mall_id", "INTEGER REFERENCES malls(id)"),
-                  ("on_duty", "INTEGER NOT NULL DEFAULT 0")],
+                  ("on_duty", "INTEGER NOT NULL DEFAULT 0"),
+                  ("badge", "TEXT")],                        # runner badge number shoppers can see
         "malls": [("lat", "REAL"), ("lon", "REAL"), ("radius_m", "INTEGER"),
                   ("levels", "TEXT NOT NULL DEFAULT 'Ground'")],
         "osm_refresh": [("last_error", "TEXT")],
-        "orders": [("pickup_zone_id", "INTEGER REFERENCES zones(id)"),
+        "orders": [("pickup_pin", "TEXT"),                  # shopper's 4-digit PIN for the runner
+                   ("verify_secret", "TEXT"),               # seeds the rotating two-word phrase
+                   ("verified_at", "TEXT"),                 # shopper confirmed the runner's phrase
+                   ("pin_ok_at", "TEXT"),                   # runner entered the right PIN
+                   ("pin_fails", "INTEGER NOT NULL DEFAULT 0"),
+                   ("pin_locked", "INTEGER NOT NULL DEFAULT 0"),
+                   ("delivery_verified_at", "TEXT"),        # shopper confirmed the runner at delivery
+                   ("safety_flag", "TEXT"), ("safety_note", "TEXT"),   # "this isn't my runner"
+                   ("pickup_zone_id", "INTEGER REFERENCES zones(id)"),
                    ("pickup_level", "TEXT"), ("pickup_details", "TEXT"),
                    ("pickup_lat", "REAL"), ("pickup_lon", "REAL"), ("pickup_acc", "REAL"),
                    ("pickup_src", "TEXT"), ("dropoff_src", "TEXT"),    # gps | map
@@ -144,6 +153,8 @@ def init_db():
         for col, decl in cols_to_add:
             if col not in have:
                 db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+    # every runner gets a badge number that shoppers can check (1000 + their id)
+    db.execute("UPDATE users SET badge = CAST(1000 + id AS TEXT) WHERE role='runner' AND badge IS NULL")
     db.commit()
 
 

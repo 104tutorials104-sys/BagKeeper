@@ -74,13 +74,20 @@
   </form>
 </details>
 
+{% if safety %}<h2 style="color:var(--bad)">Safety reports: &ldquo;this isn't my runner&rdquo;</h2>
+<p class="muted">Contact the shopper first, then reassign the job or clear the report.</p>
+{% for o in safety %}{% include "_order_card.html" %}{% endfor %}{% endif %}
+
+{% if pin_locked %}<h2>PIN locked after 3 wrong tries</h2>
+{% for o in pin_locked %}{% include "_order_card.html" %}{% endfor %}{% endif %}
+
 {% if stuck %}<h2>Unclaimed for {{ 5 }}+ minutes</h2>
 <p class="muted">Open the order and assign a runner.</p>
 {% for o in stuck %}{% include "_order_card.html" %}{% endfor %}{% endif %}
 
 <h2>Runners</h2>
 {% for r in staff %}
-<div class="card row"><b>{{ r.name }}</b>
+<div class="card row"><b>{{ r.name }} <span class="badge">Badge {{ r.badge }}</span></b>
   <span class="muted">{% for m in malls if m.id == r.mall_id %}{{ m.name }}{% endfor %}
     &middot; <span class="badge {{ 'ok' if r.on_duty else '' }}">{{ 'On duty' if r.on_duty else 'Off duty' }}</span></span></div>
 {% else %}<p class="muted">No runners yet.</p>{% endfor %}

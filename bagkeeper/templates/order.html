@@ -35,13 +35,24 @@
   {% if o.storage_slot and staff %}<div class="row"><span class="muted">Storage slot</span><b>{{ o.storage_slot }}</b></div>{% endif %}
   {% if staff %}
     <div class="row"><span class="muted">Customer</span><b>{{ o.customer }} &middot; {{ o.customer_phone }}</b></div>
-    <div class="row"><span class="muted">Runner</span><b>{{ o.runner or '-' }}</b></div>
+    <div class="row"><span class="muted">Runner</span><b>{{ o.runner or '-' }}{% if o.runner_badge %} &middot; badge {{ o.runner_badge }}{% endif %}</b></div>
     {% if o.note %}<div class="row"><span class="muted">Note</span><b>{{ o.note }}</b></div>{% endif %}
   {% endif %}
   <div class="row"><span class="muted">Fee</span><b>{{ o.fee_cents|money }}</b></div>
   {% if o.seal_ok == 0 %}<p class="badge bad">Seal reported broken at delivery - under review</p>{% endif %}
   {% if o.seal_ok == 1 %}<p class="badge ok">Seal intact at delivery</p>{% endif %}
 </div>
+
+{% if o.safety_flag %}
+<div class="flash error">
+  {% if not staff %}<b>You reported this runner.</b> Do not hand over your bags. The admin has been alerted and will contact you.
+  {% elif g.user.role == 'admin' %}<b>Safety report:</b> the shopper says this is not their runner{% if o.safety_note %}: &ldquo;{{ o.safety_note }}&rdquo;{% endif %}. Check it, then reassign the job or clear the report.
+  {% else %}<b>Job on hold.</b> The shopper raised a safety concern. Wait for the admin before doing anything else.{% endif %}
+</div>
+{% if g.user.role == 'admin' %}
+<form method="post" action="{{ url_for('web.clear_flag', order_id=o.id) }}"><button class="btn ghost">Clear safety report</button></form>
+{% endif %}
+{% endif %}
 
 {% if not staff and o.status in ('assigned','out_for_delivery') and o.runner %}
 <a class="card" href="{{ url_for('web.order_map', order_id=o.id) }}" style="border-color:var(--brand)">
@@ -63,7 +74,28 @@
 {# ---------- customer actions ---------- #}
 {% if not staff %}
   {% if o.status in ('requested','assigned') %}
-    <p class="muted">{{ 'A runner is on the way to you.' if o.status=='assigned' else 'Finding a runner near you...' }}</p>
+    {% if o.status == 'requested' %}<p class="muted">Finding a runner near you...</p>{% endif %}
+    {% if o.status == 'assigned' and not o.safety_flag %}
+    <div class="card">
+      <h2 style="margin-top:0">Check your runner</h2>
+      <div class="row"><b>{{ o.runner.split(' ')[0] }}</b><span class="badge">Badge {{ o.runner_badge }}</span></div>
+      {% if not o.verified_at %}
+        <p class="muted">When your runner arrives: <b>1.</b> Ask them to show their screen. <b>2.</b> Compare the phrase on their phone with this one. <b>3.</b> Only if it matches, tap &ldquo;It matches&rdquo;. Don't show your own screen first.</p>
+        <div class="code phrase" data-phrase data-order="{{ o.id }}">{{ phrase }}</div>
+        <p class="muted" data-phrase-left style="text-align:center"></p>
+        <form method="post" action="{{ url_for('web.verify_confirm', order_id=o.id) }}"><button class="btn">It matches</button></form>
+      {% else %}
+        <p><span class="badge ok">Runner verified</span></p>
+        <h3 style="margin:8px 0">Your PIN</h3>
+        <div class="code">{{ o.pickup_pin }}</div>
+        <p class="muted">Tell this PIN to your runner so they can start. Never share it with anyone else.</p>
+      {% endif %}
+      <form method="post" action="{{ url_for('web.report_runner', order_id=o.id) }}" style="margin-top:14px">
+        <input name="note" placeholder="Something wrong? Say what (optional)" maxlength="300">
+        <button class="btn danger">This isn't my runner</button>
+      </form>
+    </div>
+    {% endif %}
     <form method="post" action="{{ url_for('web.cancel', order_id=o.id) }}"><button class="btn danger">Cancel request</button></form>
   {% elif o.status in ('picked_up','stored') %}
     <h2>Done shopping?</h2>
@@ -86,10 +118,29 @@
     </form>
     <script src="{{ url_for('static', filename='location.js') }}"></script>
     <script src="{{ url_for('static', filename='mappick.js') }}"></script>
-  {% elif o.status in ('return_requested','out_for_delivery') %}
+  {% elif o.status == 'return_requested' %}
     <h2>Your handover code</h2>
-    <div class="code">{{ o.handover_code }}</div>
-    <p class="muted">Give this code to the runner only when you've checked that the seal number matches <b>{{ o.seal_no }}</b> and is unbroken.</p>
+    <p class="muted">Your code appears once your runner is on the way and you have checked who they are.</p>
+  {% elif o.status == 'out_for_delivery' and not o.safety_flag %}
+    <div class="card">
+      <h2 style="margin-top:0">Check your runner</h2>
+      <div class="row"><b>{{ o.runner.split(' ')[0] }}</b><span class="badge">Badge {{ o.runner_badge }}</span></div>
+      {% if not o.delivery_verified_at %}
+        <p class="muted">When your runner arrives: ask them to show their screen and compare the phrase with this one. Only if it matches, tap &ldquo;It matches&rdquo; and your handover code will appear.</p>
+        <div class="code phrase" data-phrase data-order="{{ o.id }}">{{ phrase }}</div>
+        <p class="muted" data-phrase-left style="text-align:center"></p>
+        <form method="post" action="{{ url_for('web.verify_confirm', order_id=o.id) }}"><button class="btn">It matches</button></form>
+      {% else %}
+        <p><span class="badge ok">Runner verified</span></p>
+        <h3 style="margin:8px 0">Your handover code</h3>
+        <div class="code">{{ o.handover_code }}</div>
+        <p class="muted">Give this code to the runner only when you've checked that the seal number matches <b>{{ o.seal_no }}</b> and is unbroken.</p>
+      {% endif %}
+      <form method="post" action="{{ url_for('web.report_runner', order_id=o.id) }}" style="margin-top:14px">
+        <input name="note" placeholder="Something wrong? Say what (optional)" maxlength="300">
+        <button class="btn danger">This isn't my runner</button>
+      </form>
+    </div>
   {% endif %}
 {% endif %}
 
@@ -105,10 +156,55 @@
 </details>
 {% endif %}
 
+{% if g.user.role == 'admin' and o.status == 'assigned' and o.pickup_pin is not none %}
+<div class="card">
+  <div class="row"><span class="muted">Who-is-who check</span>
+    {% if o.pin_ok_at %}<span class="badge ok">Done</span>
+    {% elif o.pin_locked %}<span class="badge bad">PIN locked</span>
+    {% elif o.verified_at %}<span class="badge warn">Shopper confirmed, waiting for PIN</span>
+    {% else %}<span class="badge warn">Waiting for the shopper to confirm</span>{% endif %}</div>
+  {% if not o.pin_ok_at %}
+  <details style="margin-top:8px"><summary>Override (e.g. the shopper's phone died)</summary>
+    <form method="post" action="{{ url_for('web.verify_override', order_id=o.id) }}">
+      <input name="reason" placeholder="Reason, for the record" minlength="5" maxlength="200" required>
+      <button class="btn">Override and log it</button>
+    </form>
+  </details>
+  {% endif %}
+</div>
+{% endif %}
+
 {# ---------- runner actions ---------- #}
 {% if staff %}
   {% if o.status == 'requested' %}
     <form method="post" action="{{ url_for('web.claim', order_id=o.id) }}"><button class="btn">Take this pickup</button></form>
+  {% elif o.status == 'assigned' and o.safety_flag %}
+    <p class="muted">This job is on hold until the admin reviews the shopper's report.</p>
+  {% elif o.status == 'assigned' and not (o.pickup_pin is none or (o.verified_at and o.pin_ok_at)) %}
+    {% if o.runner_id == g.user.id %}
+      {% if not o.verified_at %}
+        <div class="card" data-wait-verify data-order="{{ o.id }}">
+          <h2 style="margin-top:0">Step 1 of 2: show the shopper your phrase</h2>
+          <p class="muted">Hold up your phone so the shopper can compare it with theirs. Don't read it out loud.</p>
+          <div class="code phrase" data-phrase data-order="{{ o.id }}">{{ phrase }}</div>
+          <p class="muted" data-phrase-left style="text-align:center"></p>
+          <p class="muted">Waiting for the shopper to tap &ldquo;It matches&rdquo;...</p>
+        </div>
+      {% else %}
+        <form class="card" method="post" action="{{ url_for('web.verify_pin', order_id=o.id) }}">
+          <h2 style="margin-top:0">Step 2 of 2: enter the shopper's PIN</h2>
+          {% if o.pin_locked %}
+            <p class="badge bad">Locked after 3 wrong PINs. Call the admin.</p>
+          {% else %}
+            <p class="muted">The shopper has confirmed you. Ask them for their 4-digit PIN. {{ 3 - o.pin_fails }} tries left.</p>
+            <input name="pin" inputmode="numeric" maxlength="4" pattern="\d{4}" autocomplete="off" required>
+            <button class="btn">Check PIN</button>
+          {% endif %}
+        </form>
+      {% endif %}
+    {% else %}
+      <p class="muted">Waiting for the runner to verify the shopper.</p>
+    {% endif %}
   {% elif o.status == 'assigned' %}
     <h2>Seal &amp; collect</h2>
     <form class="card" method="post" enctype="multipart/form-data" action="{{ url_for('web.pickup', order_id=o.id) }}">
@@ -133,7 +229,17 @@
     </form>
   {% elif o.status == 'return_requested' %}
     <form method="post" action="{{ url_for('web.deliver_start', order_id=o.id) }}"><button class="btn">Start delivery</button></form>
+  {% elif o.status == 'out_for_delivery' and o.safety_flag %}
+    <p class="muted">This delivery is on hold until the admin reviews the shopper's report.</p>
   {% elif o.status == 'out_for_delivery' %}
+    {% if phrase %}
+    <div class="card">
+      <b>Show the shopper this phrase first</b>
+      <div class="code phrase" data-phrase data-order="{{ o.id }}">{{ phrase }}</div>
+      <p class="muted" data-phrase-left style="text-align:center"></p>
+      <p class="muted">The shopper compares it with their phone, taps &ldquo;It matches&rdquo;, and then gives you their 4-digit code.</p>
+    </div>
+    {% endif %}
     <h2>Hand over</h2>
     <form class="card" method="post" enctype="multipart/form-data" action="{{ url_for('web.deliver_complete', order_id=o.id) }}">
       <label>Customer's 4-digit code</label>
@@ -161,4 +267,5 @@
   {% for e in events %}<li><b>{{ e.event|label }}</b> <span class="muted">{{ e.created_at }} UTC{% if e.actor %} &middot; {{ e.actor }}{% endif %}</span>{% if e.detail %}<br><span class="muted">{{ e.detail }}</span>{% endif %}</li>{% endfor %}
 </ul>
 <script src="{{ url_for('static', filename='camera.js') }}"></script>
+<script src="{{ url_for('static', filename='verify.js') }}"></script>
 {% endblock %}

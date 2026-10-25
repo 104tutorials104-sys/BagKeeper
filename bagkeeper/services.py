@@ -46,6 +46,8 @@ def create_user(name, phone, password, role="customer", mall_id=None):
         (name, phone, role, generate_password_hash(password),
          mall_id if role == "runner" else None),
     )
+    if role == "runner":
+        db.execute("UPDATE users SET badge=? WHERE id=?", (str(1000 + cur.lastrowid), cur.lastrowid))
     db.commit()
     return cur.lastrowid
 
@@ -85,7 +87,9 @@ def reassign(order_id, admin_id, runner_id):
     # only when the runner acts; reassigning just changes who is responsible.
     new_status = {"requested": "assigned"}.get(o["status"], o["status"])
     get_db().execute("DELETE FROM runner_positions WHERE order_id=?", (order_id,))
-    _set(order_id, runner_id=runner_id, status=new_status)
+    # a new runner starts from scratch: verification, PIN tries and any safety report are reset
+    _set(order_id, runner_id=runner_id, status=new_status, verified_at=None, pin_ok_at=None,
+         pin_fails=0, pin_locked=0, delivery_verified_at=None, safety_flag=None, safety_note=None)
     log(order_id, admin_id, "reassigned", f"to {r['name']}")
     get_db().commit()
 
@@ -120,7 +124,7 @@ def _set(order_id, **fields):
 def get_order(order_id):
     return get_db().execute(
         """SELECT o.*, m.name AS mall, c.name AS customer, c.phone AS customer_phone,
-                  r.name AS runner
+                  r.name AS runner, r.badge AS runner_badge
            FROM orders o JOIN malls m ON m.id=o.mall_id
            JOIN users c ON c.id=o.customer_id
            LEFT JOIN users r ON r.id=o.runner_id WHERE o.id=?""",
@@ -570,9 +574,11 @@ def create_order(customer_id, mall_id, zone_id, bag_count, details="", note="",
     cur = db.execute(
         """INSERT INTO orders (code, customer_id, mall_id, pickup_spot, pickup_zone_id,
                pickup_level, pickup_details, pickup_lat, pickup_lon, pickup_acc, pickup_src,
-               bag_count, note, fee_cents) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               bag_count, note, fee_cents, pickup_pin, verify_secret)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (code, customer_id, mall_id, pickup_spot, zone["id"] if zone else None, level or None,
-         (details or "").strip() or None, plat, plon, pacc, psrc, bag_count, note.strip(), fee),
+         (details or "").strip() or None, plat, plon, pacc, psrc, bag_count, note.strip(), fee,
+         f"{secrets.randbelow(10000):04d}", secrets.token_hex(16)),
     )
     where = pickup_spot + _pin_note(pacc, psrc)
     log(cur.lastrowid, customer_id, "requested", f"{bag_count} bag(s) at {where}")
@@ -684,6 +690,173 @@ def runner_tracking(order):
     return out
 
 
+# ---------- who is who: runner <-> shopper verification ----------
+# Pickup: the shopper compares the runner's rotating phrase with their own screen and taps
+# "It matches"; only then does the shopper reveal a 4-digit PIN, which the runner types in to
+# unlock sealing. Delivery: the same phrase check reveals the handover code. A shopper can also
+# report "this isn't my runner", which puts the job on hold for the admin.
+PIN_MAX_TRIES = 3
+PHRASE_WINDOW_S = 60
+ADJECTIVES = (
+    "Amber", "Azure", "Bold", "Brave", "Bright", "Calm", "Clever", "Coral", "Cosmic", "Crimson",
+    "Dizzy", "Dusty", "Eager", "Fancy", "Frosty", "Fuzzy", "Gentle", "Golden", "Gusty", "Happy",
+    "Honest", "Icy", "Jolly", "Keen", "Lemon", "Lucky", "Mellow", "Merry", "Mighty", "Misty",
+    "Noble", "Olive", "Orange", "Pearl", "Plum", "Proud", "Quick", "Quiet", "Rapid", "Rosy",
+    "Royal", "Ruby", "Sandy", "Shiny", "Silver", "Sleepy", "Smart", "Snowy", "Solar", "Spicy",
+    "Steady", "Sunny", "Swift", "Teal", "Tidy", "Tiny", "Velvet", "Violet", "Warm", "Wild",
+    "Wise", "Witty", "Young", "Zesty",
+)
+ANIMALS = (
+    "Badger", "Bear", "Beaver", "Bison", "Camel", "Cobra", "Condor", "Coyote", "Crane", "Dingo",
+    "Dolphin", "Eagle", "Falcon", "Ferret", "Finch", "Fox", "Gazelle", "Gecko", "Goat", "Hawk",
+    "Heron", "Horse", "Ibis", "Jaguar", "Koala", "Lemur", "Lion", "Lizard", "Llama", "Lynx",
+    "Moose", "Mouse", "Newt", "Otter", "Owl", "Panda", "Parrot", "Pelican", "Pigeon", "Puma",
+    "Quail", "Rabbit", "Raven", "Robin", "Salmon", "Seal", "Shark", "Sloth", "Sparrow", "Squid",
+    "Stork", "Swan", "Tiger", "Toucan", "Trout", "Turtle", "Viper", "Walrus", "Whale", "Wolf",
+    "Wombat", "Yak",
+)
+
+
+def _utc_text():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _secret(order):
+    if order["verify_secret"]:
+        return order["verify_secret"]
+    s = secrets.token_hex(16)            # orders created before this feature
+    get_db().execute("UPDATE orders SET verify_secret=? WHERE id=? AND verify_secret IS NULL",
+                     (s, order["id"]))
+    get_db().commit()
+    return get_db().execute("SELECT verify_secret FROM orders WHERE id=?", (order["id"],)).fetchone()[0]
+
+
+def phrase_for(order, now=None):
+    """The two-word-plus-number phrase both phones show right now, and seconds until it changes.
+    Derived from a per-order secret and the current minute, so it can't be guessed or reused."""
+    import hashlib
+    import hmac
+    import time
+    now = time.time() if now is None else now
+    window = int(now // PHRASE_WINDOW_S)
+    digest = hmac.new(_secret(order).encode(), f"{order['id']}:{window}".encode(),
+                      hashlib.sha256).digest()
+    adj = ADJECTIVES[int.from_bytes(digest[0:2], "big") % len(ADJECTIVES)]
+    animal = ANIMALS[int.from_bytes(digest[2:4], "big") % len(ANIMALS)]
+    number = int.from_bytes(digest[4:6], "big") % 100
+    return f"{adj} {animal} {number:02d}", int(PHRASE_WINDOW_S - (now % PHRASE_WINDOW_S))
+
+
+def can_see_phrase(order, user):
+    """Only the shopper who owns the order and the runner assigned to it."""
+    if order is None or order["status"] not in ("assigned", "out_for_delivery") or order["safety_flag"]:
+        return False
+    return (user["role"] == "customer" and order["customer_id"] == user["id"]) or \
+           (user["role"] == "runner" and order["runner_id"] == user["id"])
+
+
+def _check_not_flagged(o):
+    if o["safety_flag"]:
+        raise RuleError("This job is on hold after a safety report. Wait for the admin.")
+
+
+def verification_needed(o):
+    """Pickup can't start until the shopper confirmed the phrase and the runner entered the PIN.
+    Orders from before this feature (no PIN) are exempt."""
+    return o["pickup_pin"] is not None and not (o["verified_at"] and o["pin_ok_at"])
+
+
+def confirm_runner(order_id, customer_id):
+    """Shopper taps 'It matches' (pickup) or confirms the runner again at delivery."""
+    o = get_order(order_id)
+    if o is None or o["customer_id"] != customer_id:
+        raise RuleError("Not your order.")
+    _check_not_flagged(o)
+    if o["runner_id"] is None or o["status"] not in ("assigned", "out_for_delivery"):
+        raise RuleError("Your runner isn't on the way yet.")
+    badge = o["runner_badge"] or "-"
+    if o["status"] == "assigned":
+        if o["verified_at"]:
+            return
+        _set(order_id, verified_at=_utc_text())
+        log(order_id, customer_id, "runner_verified", f"shopper confirmed the phrase (runner badge {badge})")
+    else:
+        if o["delivery_verified_at"]:
+            return
+        _set(order_id, delivery_verified_at=_utc_text())
+        log(order_id, customer_id, "delivery_runner_verified", f"shopper confirmed the phrase (runner badge {badge})")
+    get_db().commit()
+
+
+def enter_pin(order_id, runner_id, pin):
+    """Runner types the shopper's PIN. Three wrong tries lock the step until an admin overrides."""
+    import hmac
+    o = get_order(order_id)
+    if o is None or o["runner_id"] != runner_id or o["status"] != "assigned":
+        raise RuleError("This pickup isn't yours.")
+    _check_not_flagged(o)
+    if o["pin_ok_at"] or o["pickup_pin"] is None:
+        return
+    if not o["verified_at"]:
+        raise RuleError("Wait until the shopper confirms your phrase.")
+    if o["pin_locked"]:
+        raise RuleError("Locked after 3 wrong PINs. Call the admin.")
+    pin = (pin or "").strip()
+    if not hmac.compare_digest(pin.encode(), o["pickup_pin"].encode()):
+        fails = o["pin_fails"] + 1
+        locked = fails >= PIN_MAX_TRIES
+        _set(order_id, pin_fails=fails, pin_locked=1 if locked else 0)
+        log(order_id, runner_id, "pin_failed", f"wrong PIN, attempt {fails} of {PIN_MAX_TRIES}")
+        if locked:
+            log(order_id, runner_id, "pin_locked", "3 wrong PINs - an admin must review and override")
+        get_db().commit()
+        raise RuleError("Locked after 3 wrong PINs. The admin has been alerted." if locked
+                        else f"Wrong PIN. {PIN_MAX_TRIES - fails} tries left.")
+    _set(order_id, pin_ok_at=_utc_text())
+    log(order_id, runner_id, "pin_ok", "shopper PIN accepted")
+    get_db().commit()
+
+
+def override_verification(order_id, admin_id, reason):
+    """Admin lets a pickup proceed without the shopper's phone (e.g. it died). Always logged."""
+    reason = (reason or "").strip()
+    if len(reason) < 5:
+        raise RuleError("Give a short reason (at least 5 characters).")
+    o = get_order(order_id)
+    if o is None or o["status"] != "assigned":
+        raise RuleError("There is nothing to override.")
+    _set(order_id, verified_at=o["verified_at"] or _utc_text(), pin_ok_at=_utc_text(),
+         pin_locked=0, pin_fails=0)
+    log(order_id, admin_id, "verification_overridden", reason)
+    get_db().commit()
+
+
+def report_runner(order_id, customer_id, note=""):
+    """'This isn't my runner': put the job on hold and alert the admin."""
+    o = get_order(order_id)
+    if o is None or o["customer_id"] != customer_id:
+        raise RuleError("Not your order.")
+    if o["runner_id"] is None or o["status"] not in ("assigned", "picked_up", "out_for_delivery"):
+        raise RuleError("There is no runner to report right now.")
+    if o["safety_flag"]:
+        return
+    note = (note or "").strip()[:300]
+    _set(order_id, safety_flag="runner_reported", safety_note=note or None)
+    log(order_id, customer_id, "runner_reported",
+        f"shopper says this is NOT their runner (badge {o['runner_badge'] or '-'})" + (f": {note}" if note else ""))
+    get_db().commit()
+
+
+def clear_safety_flag(order_id, admin_id):
+    o = get_order(order_id)
+    if o is None or not o["safety_flag"]:
+        raise RuleError("There is no safety report on this order.")
+    _set(order_id, safety_flag=None, safety_note=None)
+    log(order_id, admin_id, "safety_flag_cleared", "admin reviewed and cleared the report")
+    get_db().commit()
+
+
 # ---------- admin: places ----------
 def add_zone(mall_id, name, kind, lat=None, lon=None):
     name = (name or "").strip()
@@ -734,7 +907,8 @@ def claim(order_id, runner_id):
     _check_can_take(get_user(runner_id), o)
     if o["status"] != "requested":
         raise RuleError("Someone already took this pickup.")
-    _set(order_id, status="assigned", runner_id=runner_id)
+    _set(order_id, status="assigned", runner_id=runner_id, verified_at=None, pin_ok_at=None,
+         pin_fails=0, pin_locked=0)
     log(order_id, runner_id, "assigned")
     get_db().commit()
 
@@ -743,6 +917,9 @@ def record_pickup(order_id, runner_id, seal_no, seal_method, bag_photo, sealed_p
     o = get_order(order_id)
     if o["status"] != "assigned" or o["runner_id"] != runner_id:
         raise RuleError("This pickup isn't assigned to you.")
+    _check_not_flagged(o)
+    if verification_needed(o):
+        raise RuleError("Verify the shopper first: they confirm your phrase, then you enter their PIN.")
     seal_no = seal_no.strip().upper()
     if not seal_no:
         raise RuleError("Enter the seal / tag number.")
@@ -759,6 +936,7 @@ def mark_stored(order_id, runner_id, slot):
     o = get_order(order_id)
     if o["status"] != "picked_up" or o["runner_id"] != runner_id:
         raise RuleError("Can't store this bag now.")
+    _check_not_flagged(o)
     if not slot.strip():
         raise RuleError("Enter the storage slot.")
     _set(order_id, status="stored", storage_slot=slot.strip().upper())
@@ -769,6 +947,7 @@ def mark_stored(order_id, runner_id, slot):
 def start_delivery(order_id, runner_id):
     o = get_order(order_id)
     _check_can_take(get_user(runner_id), o)
+    _check_not_flagged(o)
     if o["status"] != "return_requested":
         raise RuleError("No delivery to start.")
     if o["runner_id"] not in (None, runner_id) and get_user(runner_id)["role"] != "admin":
@@ -782,6 +961,7 @@ def complete_delivery(order_id, runner_id, code, seal_intact, photo):
     o = get_order(order_id)
     if o["status"] != "out_for_delivery" or o["runner_id"] != runner_id:
         raise RuleError("This delivery isn't yours.")
+    _check_not_flagged(o)
     if code.strip() != o["handover_code"]:
         raise RuleError("Wrong handover code - ask the customer for the 4-digit code.")
     save_photo(order_id, "delivery", photo)

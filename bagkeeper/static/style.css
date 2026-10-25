@@ -58,6 +58,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand); out
 .steps i.on { background: var(--brand); }
 .code { font-size: 2.2rem; font-weight: 800; letter-spacing: .3em; text-align: center;
   background: var(--brand-soft); color: var(--brand); border-radius: 12px; padding: 12px; }
+.code.phrase { font-size: 1.9rem; letter-spacing: .02em; line-height: 1.2; margin: 10px 0; }
 .hero { padding: 36px 0 12px; }
 .hero h1 { font-size: 2.1rem; line-height: 1.15; }
 .hero p { font-size: 1.1rem; color: var(--muted); }

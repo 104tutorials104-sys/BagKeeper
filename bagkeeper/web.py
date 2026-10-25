@@ -122,8 +122,9 @@ def order(order_id):
     o = _order_or_404(order_id)
     mall = svc.get_mall(o["mall_id"])
     show_pins = _can_see_pins(o)
+    phrase = svc.phrase_for(o)[0] if svc.can_see_phrase(o, g.user) else None
     return render_template(
-        "order.html", o=o, events=svc.order_events(order_id),
+        "order.html", o=o, phrase=phrase, events=svc.order_events(order_id),
         photos=svc.order_photos(order_id), mall=mall, show_pins=show_pins,
         pickup_in_mall=svc.pin_inside_mall(mall, o["pickup_lat"], o["pickup_lon"]),
         dropoff_in_mall=svc.pin_inside_mall(mall, o["dropoff_lat"], o["dropoff_lon"]),
@@ -160,6 +161,44 @@ def order_map(order_id):
         flash("This order has no map pin - see the written place and details.", "error")
         return redirect(url_for("web.order", order_id=order_id))
     return render_template("order_map.html", o=o, pins=pins, tracking=tracking)
+
+
+# ---------- who is who: runner <-> shopper verification ----------
+@bp.post("/order/<int:order_id>/verify/confirm")
+@login_required("customer")
+def verify_confirm(order_id):
+    _order_or_404(order_id)
+    return _act(order_id, lambda: svc.confirm_runner(order_id, g.user["id"]))
+
+
+@bp.post("/order/<int:order_id>/verify/pin")
+@login_required("runner")
+def verify_pin(order_id):
+    return _act(order_id, lambda: svc.enter_pin(order_id, g.user["id"], request.form.get("pin", "")))
+
+
+@bp.post("/order/<int:order_id>/verify/override")
+@login_required("admin")
+def verify_override(order_id):
+    return _act(order_id, lambda: svc.override_verification(
+        order_id, g.user["id"], request.form.get("reason", "")))
+
+
+@bp.post("/order/<int:order_id>/report")
+@login_required("customer")
+def report_runner(order_id):
+    _order_or_404(order_id)
+    def go():
+        svc.report_runner(order_id, g.user["id"], request.form.get("note", ""))
+        flash("Thank you. The job is on hold and the admin has been alerted. "
+              "Do not hand over your bags.", "error")
+    return _act(order_id, go)
+
+
+@bp.post("/order/<int:order_id>/flag/clear")
+@login_required("admin")
+def clear_flag(order_id):
+    return _act(order_id, lambda: svc.clear_safety_flag(order_id, g.user["id"]))
 
 
 @bp.post("/order/<int:order_id>/cancel")
@@ -269,6 +308,8 @@ def admin():
     return render_template("admin.html", stats=stats,
                            flagged=svc.list_orders("o.seal_ok=0"),
                            stuck=svc.list_orders(svc.unclaimed_clause()),
+                           safety=svc.list_orders("o.safety_flag IS NOT NULL"),
+                           pin_locked=svc.list_orders("o.pin_locked=1 AND o.status='assigned'"),
                            staff=svc.runners(), malls=svc.malls(),
                            all_zones=svc.zones(include_inactive=True),
                            recent=svc.list_orders()[:25])

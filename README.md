@@ -29,6 +29,19 @@ browser profile to play both sides.
 
 Data (database + photos) lives on the `/data` disk. Back it up.
 
+## Who-is-who check (runner and shopper verify each other)
+
+- **Pickup:** the assigned runner and the shopper both see the same rotating phrase (two words and a
+  number, changes every 60 s, derived from a per-order secret). The shopper compares it with the runner's
+  screen and taps "It matches"; only then is the shopper's 4-digit PIN revealed, which the runner types in.
+  Sealing stays locked until both steps are done. Three wrong PINs lock it and alert the admin.
+- **Delivery:** the same phrase check reveals the handover code to the shopper.
+- **"This isn't my runner":** puts the job on hold (runner can't continue) and shows in the admin
+  overview under Safety reports; the admin clears it or reassigns.
+- **Admin override:** for a dead shopper phone, with a required reason that is written to the timeline.
+- Runners have a badge number (1000 + id) shown to shoppers. Runner photos are planned for later.
+- Orders created before this feature have no PIN and skip the check.
+
 ## Map and open-source credits
 
 The "Place a pin on the map" picker is built from open-source parts, no API keys or fees:
