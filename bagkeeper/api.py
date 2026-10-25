@@ -43,6 +43,24 @@ def create():
     return jsonify(_public(svc.get_order(oid))), 201
 
 
+# ---- live updates: pages poll this to refresh themselves and show alerts ----
+@bp.get("/live")
+@login_required()
+def live():
+    scope = request.args.get("scope", "")
+    try:
+        order_id = int(request.args["id"]) if request.args.get("id") else None
+        after = int(request.args["after"]) if request.args.get("after") not in (None, "") else None
+    except ValueError:
+        return jsonify(error="bad request"), 400
+    state = svc.live_state(g.user, scope, order_id, after)
+    if state is None:
+        return jsonify(error="not found"), 404
+    resp = jsonify(state)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 # ---- who is who: rotating phrase + verification status ----
 @bp.get("/orders/<int:order_id>/verify/phrase")
 @login_required("customer", "runner")

@@ -8,7 +8,7 @@
   <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body>
+<body{% if live and g.user %} data-live='{{ live|tojson|forceescape }}'{% endif %}>
 <header class="top"><div class="in">
   <a class="logo" href="{{ url_for('web.index') }}">Bag<span>Keeper</span></a>
   <nav>
@@ -35,5 +35,9 @@
   {% endfor %}
   {% block content %}{% endblock %}
 </main>
+{% if live and g.user %}
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<script src="{{ url_for('static', filename='live.js') }}"></script>
+{% endif %}
 </body>
 </html>

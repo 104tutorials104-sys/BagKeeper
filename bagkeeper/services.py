@@ -690,6 +690,124 @@ def runner_tracking(order):
     return out
 
 
+# ---------- live updates (the pages poll this; no push service needed) ----------
+LIVE_ADMIN_EVENTS = ("requested", "return_requested", "runner_reported", "pin_locked",
+                     "delivered", "cancelled", "verification_overridden")
+
+
+def max_event_id():
+    return get_db().execute("SELECT COALESCE(MAX(id),0) FROM events").fetchone()[0]
+
+
+def _digest(*parts):
+    import hashlib
+    return hashlib.md5("|".join(str(p) for p in parts).encode()).hexdigest()[:12]
+
+
+def _live_text(ev, role, uid):
+    """Friendly one-line alert for an event, or None when this person doesn't need to hear it."""
+    e, d = ev["event"], ev["detail"] or ""
+    if role == "customer":
+        m = {"assigned": ("Your runner is on the way.", "alert"),
+             "reassigned": ("Your runner changed. Check the new runner's badge.", "alert"),
+             "pin_ok": ("Verified. Your runner is sealing your bags.", "info"),
+             "sealed_and_picked_up": ("Your bags are sealed and collected.", "info"),
+             "stored": ("Your bags are safely stored.", "info"),
+             "out_for_delivery": ("Your runner is bringing your bags. Track live.", "alert"),
+             "delivered": ("Delivered. Thank you!", "info"),
+             "safety_flag_cleared": ("The admin reviewed your report.", "info"),
+             "verification_overridden": ("The admin approved your pickup.", "info")}.get(e)
+    elif role == "runner":
+        m = {"requested": (f"New pickup: {d}" if d else "New pickup request.", "alert"),
+             "return_requested": ("A shopper wants their bags back.", "alert"),
+             "cancelled": ("A request was cancelled.", "info"),
+             "runner_verified": ("The shopper confirmed you. Ask for their PIN.", "alert"),
+             "delivery_runner_verified": ("The shopper confirmed you. Ask for their handover code.", "alert"),
+             "runner_reported": ("Safety report: this job is on hold. Wait for the admin.", "alert"),
+             "safety_flag_cleared": ("The hold was cleared. You can continue.", "info"),
+             "verification_overridden": ("The admin approved the pickup. You can seal and collect.", "alert"),
+             "reassigned": (("You were assigned a job.", "alert") if ev["runner_id"] == uid else None)}.get(e)
+    else:
+        broken = "SEAL BROKEN" in d
+        m = {"requested": ("New pickup request.", "info"),
+             "return_requested": ("A shopper wants their bags back.", "info"),
+             "runner_reported": ("SAFETY REPORT: a shopper says this is not their runner.", "alert"),
+             "pin_locked": ("A pickup PIN is locked after 3 wrong tries.", "alert"),
+             "cancelled": ("A request was cancelled.", "info"),
+             "verification_overridden": ("A verification override was recorded.", "info"),
+             "delivered": (("SEAL BROKEN reported at delivery.", "alert") if broken else ("Delivered.", "info"))}.get(e)
+    if not m or not m[0]:
+        return None
+    return {"id": ev["id"], "text": f"{ev['code']}: {m[0]}", "level": m[1], "link": f"/order/{ev['order_id']}"}
+
+
+def live_state(user, scope, order_id=None, after=None):
+    """What a page needs to know to stay current: a signature of what it shows (changes when the
+    page should refresh) plus any new alerts. after=None just returns a baseline (no alerts).
+    Returns None if this person may not watch that order."""
+    db, uid, role = get_db(), user["id"], user["role"]
+    if scope == "order":
+        o = get_order(order_id)
+        if o is None:
+            return None
+        ok = (role == "admin" or (role == "customer" and o["customer_id"] == uid)
+              or (role == "runner" and (o["runner_id"] == uid or o["mall_id"] == user["mall_id"])))
+        if not ok:
+            return None
+        last = db.execute("SELECT COALESCE(MAX(id),0) FROM events WHERE order_id=?", (o["id"],)).fetchone()[0]
+        sig = _digest(o["status"], o["runner_id"], o["updated_at"], o["verified_at"], o["pin_ok_at"],
+                      o["delivery_verified_at"], o["safety_flag"], o["pin_locked"], o["handover_code"], last)
+    elif scope == "runner" and role == "runner":
+        cond, args = ("(mall_id=? AND status IN ('requested','return_requested','stored')) OR "
+                      "(runner_id=? AND status IN ('assigned','picked_up','out_for_delivery'))"), (user["mall_id"], uid)
+        rows = db.execute(f"SELECT id,status,runner_id FROM orders WHERE {cond} ORDER BY id", args).fetchall()
+        last = db.execute(f"SELECT COALESCE(MAX(e.id),0) FROM events e WHERE e.order_id IN "
+                          f"(SELECT id FROM orders WHERE {cond})", args).fetchone()[0]
+        sig = _digest(*[tuple(r) for r in rows], last, user["on_duty"])
+    elif scope == "dashboard" and role == "customer":
+        rows = db.execute("SELECT id,status,runner_id FROM orders WHERE customer_id=? ORDER BY id", (uid,)).fetchall()
+        last = db.execute("SELECT COALESCE(MAX(e.id),0) FROM events e JOIN orders o ON o.id=e.order_id "
+                          "WHERE o.customer_id=?", (uid,)).fetchone()[0]
+        sig = _digest(*[tuple(r) for r in rows], last)
+    elif scope == "admin" and role == "admin":
+        agg = db.execute("SELECT COUNT(*), COALESCE(SUM(safety_flag IS NOT NULL),0), COALESCE(SUM(pin_locked),0), "
+                         "COALESCE(SUM(status IN ('requested','return_requested')),0) FROM orders").fetchone()
+        sig = _digest(*tuple(agg), max_event_id())
+    else:
+        return None
+
+    out = {"scope": scope, "id": order_id, "sig": sig, "events": [], "after": max_event_id()}
+    if after is None:
+        return out
+    rows = db.execute(
+        """SELECT e.id, e.order_id, e.actor_id, e.event, e.detail, o.code, o.customer_id,
+                  o.runner_id, o.mall_id, o.status
+           FROM events e JOIN orders o ON o.id=e.order_id WHERE e.id > ? ORDER BY e.id LIMIT 200""",
+        (after,)).fetchall()
+    out["after"] = rows[-1]["id"] if rows else after
+
+    def visible(ev):
+        if ev["actor_id"] == uid:
+            return False                                   # your own actions don't alert you
+        if scope == "order":
+            return ev["order_id"] == order_id
+        if role == "customer":
+            return ev["customer_id"] == uid
+        if role == "runner":
+            if ev["runner_id"] == uid:
+                return True
+            return (ev["mall_id"] == user["mall_id"] and ev["event"] in ("requested", "return_requested", "cancelled")
+                    and (ev["event"] != "return_requested" or ev["runner_id"] is None))
+        return ev["event"] in LIVE_ADMIN_EVENTS
+
+    for ev in rows:
+        if visible(ev):
+            msg = _live_text(ev, role, uid)
+            if msg:
+                out["events"].append(msg)
+    return out
+
+
 # ---------- who is who: runner <-> shopper verification ----------
 # Pickup: the shopper compares the runner's rotating phrase with their own screen and taps
 # "It matches"; only then does the shopper reveal a 4-digit PIN, which the runner types in to

@@ -73,6 +73,17 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand); out
 .tl { list-style: none; margin: 0; padding: 0; }
 .tl li { padding: 6px 0 6px 16px; border-left: 2px solid var(--line); font-size: .92rem; }
 details summary { cursor: pointer; font-weight: 700; }
+/* live alerts */
+.toasts { position: fixed; top: 58px; left: 12px; right: 12px; max-width: 440px; margin: 0 auto; z-index: 70;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.toast { pointer-events: auto; background: var(--card); color: var(--ink); border: 1px solid var(--line);
+  border-left: 5px solid var(--brand); border-radius: 12px; padding: 12px 14px; box-shadow: 0 6px 24px rgba(0,0,0,.35);
+  display: flex; gap: 10px; align-items: center; justify-content: space-between; animation: toast-in .25s ease-out; }
+.toast.alert { border-left-color: var(--warn); }
+.toast.bad { border-left-color: var(--bad); }
+.toast a, .toast button { color: var(--brand); font-weight: 700; background: none; border: 0; font: inherit; cursor: pointer; white-space: nowrap; }
+.toast .x { color: var(--muted); font-weight: 400; }
+@keyframes toast-in { from { transform: translateY(-8px); opacity: 0; } to { transform: none; opacity: 1; } }
 /* in-app camera */
 .cam-thumb { display: block; max-width: 100%; max-height: 180px; border-radius: 10px; border: 1px solid var(--line); margin-bottom: 8px; }
 .cam-ov { position: fixed; inset: 0; z-index: 60; background: #000; display: flex; flex-direction: column; }

@@ -29,6 +29,16 @@ browser profile to play both sides.
 
 Data (database + photos) lives on the `/data` disk. Back it up.
 
+## Live updates and alerts
+
+Every screen watches itself (`static/live.js` polls `/api/live` every 4-6 s while the tab is visible):
+the shopper's order page, the shopper's list, the runner board and the admin overview refresh when
+something changes, and show an alert banner (plus beep, vibration and an optional system notification)
+for events such as "your runner is on the way", "new pickup request" or a safety report. A page where
+someone is typing or has the camera/map open shows "Tap to refresh" instead of reloading. While a runner is
+on the way, the shopper's order page shows the live map with the runner's dot.
+Real push notifications while the app is closed need a service worker and a push service (planned, together with the mobile app).
+
 ## Who-is-who check (runner and shopper verify each other)
 
 - **Pickup:** the assigned runner and the shopper both see the same rotating phrase (two words and a

@@ -94,7 +94,8 @@ def dashboard():
     orders = svc.list_orders("o.customer_id=?", (g.user["id"],))
     active = [o for o in orders if o["status"] in svc.ACTIVE]
     past = [o for o in orders if o["status"] not in svc.ACTIVE]
-    return render_template("dashboard.html", active=active, past=past)
+    return render_template("dashboard.html", active=active, past=past,
+                           live=svc.live_state(g.user, "dashboard"))
 
 
 @bp.route("/app/new", methods=["GET", "POST"])
@@ -123,8 +124,13 @@ def order(order_id):
     mall = svc.get_mall(o["mall_id"])
     show_pins = _can_see_pins(o)
     phrase = svc.phrase_for(o)[0] if svc.can_see_phrase(o, g.user) else None
+    # live map on the order page while a runner is on the way (shopper and admin)
+    track_on_page = (g.user["role"] in ("customer", "admin")
+                     and o["status"] in svc.SHARE_STATUSES and o["runner_id"] is not None)
     return render_template(
         "order.html", o=o, phrase=phrase, events=svc.order_events(order_id),
+        live=svc.live_state(g.user, "order", order_id),
+        track_on_page=track_on_page, pins=_pins_for(o) if show_pins else [],
         photos=svc.order_photos(order_id), mall=mall, show_pins=show_pins,
         pickup_in_mall=svc.pin_inside_mall(mall, o["pickup_lat"], o["pickup_lon"]),
         dropoff_in_mall=svc.pin_inside_mall(mall, o["dropoff_lat"], o["dropoff_lon"]),
@@ -138,14 +144,7 @@ def _can_see_pins(o):
     return g.user["role"] in ("customer", "admin") or o["runner_id"] == g.user["id"]
 
 
-@bp.route("/order/<int:order_id>/map")
-@login_required()
-def order_map(order_id):
-    o = _order_or_404(order_id)
-    if not _can_see_pins(o):
-        flash("Take the job first to see the exact pin.", "error")
-        return redirect(url_for("web.order", order_id=order_id))
-    # NOTE: the runner who took the job passes _can_see_pins, so they get the pins too
+def _pins_for(o):
     pins = []
     if o["pickup_lat"] is not None:
         pins.append({"kind": "Pickup", "color": "#0F766E", "lat": o["pickup_lat"],
@@ -155,6 +154,18 @@ def order_map(order_id):
         pins.append({"kind": "Delivery", "color": "#D97706", "lat": o["dropoff_lat"],
                      "lon": o["dropoff_lon"], "acc": o["dropoff_acc"], "src": o["dropoff_src"],
                      "label": f"Delivery: {o['dropoff_spot']}"})
+    return pins
+
+
+@bp.route("/order/<int:order_id>/map")
+@login_required()
+def order_map(order_id):
+    o = _order_or_404(order_id)
+    if not _can_see_pins(o):
+        flash("Take the job first to see the exact pin.", "error")
+        return redirect(url_for("web.order", order_id=order_id))
+    # NOTE: the runner who took the job passes _can_see_pins, so they get the pins too
+    pins = _pins_for(o)
     # the shopper (and admin) can also watch the runner live while a runner is on the way
     tracking = g.user["role"] in ("customer", "admin") and o["status"] in svc.SHARE_STATUSES
     if not pins and not tracking:
@@ -227,6 +238,7 @@ def runner():
     scope, sargs = ("o.mall_id=?", (mall,)) if g.user["role"] == "runner" else ("1=1", ())
     return render_template(
         "runner.html",
+        live=svc.live_state(g.user, "runner") if g.user["role"] == "runner" else None,
         open_pickups=svc.list_orders(f"o.status='requested' AND {scope}", sargs),
         open_returns=svc.list_orders(
             f"o.status='return_requested' AND (o.runner_id IS NULL OR o.runner_id=?) AND {scope}",
@@ -305,7 +317,7 @@ def admin():
                   SUM(seal_ok=0) AS flagged,
                   COALESCE(SUM(CASE WHEN status='delivered' THEN fee_cents END),0) AS revenue
            FROM orders""").fetchone()
-    return render_template("admin.html", stats=stats,
+    return render_template("admin.html", stats=stats, live=svc.live_state(g.user, "admin"),
                            flagged=svc.list_orders("o.seal_ok=0"),
                            stuck=svc.list_orders(svc.unclaimed_clause()),
                            safety=svc.list_orders("o.safety_flag IS NOT NULL"),

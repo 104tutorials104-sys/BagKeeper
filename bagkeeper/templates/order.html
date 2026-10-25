@@ -62,6 +62,17 @@
 </a>
 {% endif %}
 
+{% if track_on_page %}
+<div class="card" style="padding:0;overflow:hidden">
+  <div id="omap" data-mall="{{ o.mall_id }}" data-order="{{ o.id }}" data-track="1" data-pins='{{ pins|tojson|forceescape }}'
+       style="height:260px;background:var(--card)"></div>
+  <div style="padding:10px 14px">
+    <p class="muted" id="omap-msg" style="margin:0 0 4px">Loading the map...</p>
+    <a href="{{ url_for('web.order_map', order_id=o.id) }}">Open the bigger map</a>
+  </div>
+</div>
+{% endif %}
+
 {% if g.user.role == 'admin' and o.runner and o.status in ('assigned','out_for_delivery') %}
 <div class="card row">
   <span class="muted">Runner location</span>
@@ -268,4 +279,8 @@
 </ul>
 <script src="{{ url_for('static', filename='camera.js') }}"></script>
 <script src="{{ url_for('static', filename='verify.js') }}"></script>
+{% if track_on_page %}
+<script src="{{ url_for('static', filename='mappick.js') }}"></script>
+<script src="{{ url_for('static', filename='ordermap.js') }}"></script>
+{% endif %}
 {% endblock %}
